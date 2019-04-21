@@ -28,17 +28,16 @@ def phylogenetic_bipartition(tree: skbio.TreeNode) -> pd.DataFrame:
     def partition(node) -> Tuple[List[str], List[str]]:
         if len(node.children) != 2:
             raise ValueError('the tree must be strictly binary')
-        left = (
-            [tip_ids[node.children[0].name]]
-            if node.children[0].is_tip() else
-            op.add(*partition(node.children[0]))
+        left_child, right_child = node.children
+        left_tips = (
+            [tip_ids[left_child.name]] if left_child.is_tip() else
+            op.add(*partition(left_child))
         )
-        right = (
-            [tip_ids[node.children[1].name]]
-            if node.children[1].is_tip() else
-            op.add(*partition(node.children[1]))
+        right_tips = (
+            [tip_ids[right_child.name]] if right_child.is_tip() else
+            op.add(*partition(right_child))
         )
-        return left, right
+        return left_tips, right_tips
 
     node_ids, clades = zip(*[
         (node.id, map(np.array, partition(node)))
@@ -51,7 +50,11 @@ def phylogenetic_bipartition(tree: skbio.TreeNode) -> pd.DataFrame:
     for i, (left, right) in enumerate(clades):
         sign_matrix[i, left] = -1
         sign_matrix[i, right] = 1
-    return pd.DataFrame(sign_matrix, node_ids, tip_ids)
+    return pd.DataFrame(
+        data=sign_matrix,
+        index=node_ids,
+        columns=[name for name, _ in sorted(tip_ids.items(), key=op.itemgetter(1))]
+    )
 
 
 def ilr_transform(bipartition: pd.DataFrame) -> pd.DataFrame:
