@@ -57,6 +57,7 @@ def phylogenetic_bipartition(tree: skbio.TreeNode) -> pd.DataFrame:
     )
 
 
+# TODO refactor ilr_transform
 def ilr_transform(bipartition: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate an ILR transform matrix with uniform part weights for a given
@@ -71,6 +72,20 @@ def ilr_transform(bipartition: pd.DataFrame) -> pd.DataFrame:
         balances[i, balances[i] < 0] *= scaling_factor[i] / n_left[i]
         balances[i, balances[i] > 0] *= scaling_factor[i] / n_right[i]
     return pd.DataFrame(balances, bipartition.index, bipartition.keys())
+
+
+def clr_tranform(x):
+    """
+    Centered log-ratio tranform
+    :param x: a 1D or 2D array; in the 2D case each row is a sample
+    """
+    if x.ndim > 2:
+        raise ValueError
+    logs = np.log(x)
+    return (
+        logs - np.mean(logs) if x.ndim == 1 else
+        logs - np.mean(logs, axis=1)
+    )
 
 
 if __name__ == '__main__':
