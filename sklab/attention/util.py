@@ -5,9 +5,6 @@ import tensorflow as tf
 #    activations, initializers
 from keras import backend as K, layers
 
-# Keras tensor
-KTensor = t.NewType('KTensor', tf.Tensor)
-
 
 def split_heads(r: int, x: tf.Tensor) -> tf.Tensor:
     r"""

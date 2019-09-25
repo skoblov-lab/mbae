@@ -1,23 +1,19 @@
-import operator as op
 import typing as t
-from itertools import chain
-from collections import Counter
 
-import numpy as np
-import pandas as pd
 import tensorflow as tf
-# manually importing Keras from tf._api due to a bug in PyCharm
-#from tensorflow._api.v1.keras import backend as K, layers, models, optimizers, \
-#    activations, initializers
-from keras import backend as K, layers
-from fn import F
+from keras import backend as K, layers, initializers
 
-from attention import util
+from sklab.attention import util
 
-AttentionBlock = t.Callable[
-    [util.KTensor, util.KTensor, util.KTensor],
-    t.Tuple[util.KTensor, util.KTensor]
-]
+# Keras tensor
+KTensor = t.NewType('KTensor', tf.Tensor)
+
+# TODO find a way to specify a list of length 3 as input and a list
+# TODO of length 2 as output
+QKVAttention = t.Callable[[t.List[KTensor]], t.List[KTensor]]
+
+
+# TODO implement as Layer and Model objects
 
 
 class LayerNormalisation(layers.Layer):
@@ -39,7 +35,7 @@ class LayerNormalisation(layers.Layer):
         )
         super().build(input_shape)
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs, **kwargs) -> KTensor:
         """
         :param inputs: a Keras tensor
         :param kwargs:
@@ -54,21 +50,153 @@ class LayerNormalisation(layers.Layer):
         return input_shape
 
 
-class ScaledDotProductAttention:
+class BatchDot(layers.Layer):
+    """
+    A wrapper around keras.backend.batch_dot
+    """
+
+    def __init__(self, axes: t.Optional[t.Union[int, t.Tuple[int, int]]],
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.axes = axes
+
+    def call(self, inputs, **kwargs) -> KTensor:
+        return layers.Lambda(
+            lambda x: K.batch_dot(x[0], x[1], axes=self.axes)
+        )(inputs)
+
+    def compute_output_shape(self, input_shape):
+        x_shape, y_shape = input_shape
+        x_ndim, y_ndim = map(len, input_shape)
+        if x_ndim < 2 or y_ndim < 2:
+            raise ValueError(
+                f'Can not do batch_dot on inputs with rank < 2. Received inputs '
+                f'with shapes {x_shape} and {y_shape}.'
+            )
+        x_batch = x_shape[0]
+        y_batch = y_shape[0]
+        if not (x_batch is None or y_batch is None) and x_batch != y_batch:
+            raise ValueError(
+                f'Can not do batch_dot on inputs with different batch sizes. '
+                f'Received inputs with shapes {x_shape} and {y_shape}.'
+            )
+        # resolve different axes cases
+        axes = (
+            [self.axes, self.axes] if isinstance(self.axes, int) else
+            list(self.axes) if self.axes is not None else
+            [x_ndim - 1, y_ndim - 1] if y_ndim == 2 else
+            [x_ndim - 1, y_ndim - 2]
+        )
+        # make sure all axes are either None or integers
+        # TODO rewrite this message and condition
+        if any([isinstance(axis, (list, tuple)) for axis in axes]):
+            raise ValueError(
+                f'Multiple target dimensions are not supported. '
+                f'Expected: None, int, (int, int). Received: {axes}.'
+            )
+        # resolve negative indices
+        axes_noneg = [
+            axes[0] if axes[0] >= 0 else axes[0] + x_ndim,
+            axes[1] if axes[1] >= 0 else axes[1] + y_ndim
+        ]
+        # make sure we are not multiplying along the batch axis
+        if 0 in axes:
+            raise ValueError(
+                'Can not perform batch_dot over axis 0. If your inputs are not '
+                'batched, add a dummy batch dimension to your inputs using '
+                'K.expand_dims(x, 0)'
+            )
+        # use a dummy Dot layer to calculate output shape
+        dot = layers.Dot(axes_noneg)
+        return dot.compute_output_shape(input_shape)
+
+
+class SplitHeads(layers.Layer):
+    # TODO add docs and argument checks
+    def __init__(self, r: int, **kwargs):
+        super().__init__(**kwargs)
+        self.r = r
+
+    def _split(self, x: tf.Tensor) -> tf.Tensor:
+        return util.split_heads(self.r, x)
+
+    def call(self, inputs: KTensor, **kwargs) -> KTensor:
+        return layers.Lambda(
+            self._split, output_shape=self.compute_output_shape
+        )(inputs)
+
+    def compute_output_shape(self, input_shape):
+        b, l, d = input_shape
+        d_r = d // self.r
+        rb = None if b is None else b * self.r
+        return rb, l, d_r
+
+
+class MergeHeads(layers.Layer):
+    # TODO add docs and argument checks
+    def __init__(self, r: int, **kwargs):
+        super().__init__(**kwargs)
+        self.r = r
+
+    def _merge(self, x: tf.Tensor) -> tf.Tensor:
+        return util.merge_heads(self.r, x)
+
+    def call(self, inputs, **kwargs):
+        return layers.Lambda(
+            self._merge, output_shape=self.compute_output_shape
+        )(inputs)
+
+    def compute_output_shape(self, input_shape):
+        rb, l, d_r = input_shape
+        d = self.r * d_r
+        b = None if rb is None else rb // self.r
+        return b, l, d
+
+
+class GroupAttentions(layers.Layer):
+    # TODO add docs and argument checks
+    def __init__(self, r: int, **kwargs):
+        super().__init__(**kwargs)
+        self.r = r
+
+    def _group(self, x: tf.Tensor) -> tf.Tensor:
+        return util.group_attentions(self.r, x)
+
+    def call(self, inputs, **kwargs) -> KTensor:
+        return layers.Lambda(
+            self._group, output_shape=self.compute_output_shape
+        )(inputs)
+
+    def compute_output_shape(self, input_shape):
+        rb, l_q, l_k = input_shape
+        b = None if rb is None else rb // self.r
+        return b, l_q, self.r, l_k
+
+
+class ScaledDotProductAttention(layers.Layer):
     """
     Build a subgraph for scaled dot product attention.
     """
 
-    def __init__(self, dropout: float, dtype=K.floatx()):
-        # TODO check dropout
+    def __init__(self, dropout: float, return_drop=False, **kwargs):
+        """
+        :param dropout:
+        :param return_drop: return attention matrix after dropout
+        :param kwargs:
+        """
+        super().__init__(**kwargs)
         self.dropout = layers.Dropout(dropout) if dropout else None
-        self.dtype = dtype
+        self.return_drop = return_drop
 
-    def __call__(self, q: util.KTensor, k: util.KTensor, v: util.KTensor) \
-            -> t.Tuple[util.KTensor, util.KTensor]:
+    def call(self, inputs: t.List[KTensor], **kwargs) -> t.List[KTensor]:
+        q, k, v = inputs
+        return self._call(q, k, v)
+
+    # TODO merge call and _call
+    def _call(self, q: KTensor, k: KTensor, v: KTensor) -> t.List[KTensor]:
         r"""
         Argument shape legend: b - batch, l - length (number of entries in a
-        sequence), d – entry length (embedding dimensions)
+        sequence), d – entry length (embedding dimensions)
         Given:
             $ Q \in {R}^{ {l}_{q} \times d } $
             $ K \in {R}^{ {l}_{k} \times d } $
@@ -76,72 +204,77 @@ class ScaledDotProductAttention:
         $$
         A = softmax( \frac{ Q \times {K}^{T}) }{ \sqrt{d} } )
         $$
-        The block calculates and returns both the attention matrix and the
-        $ A \times V $ product
+        Given a value $ V \in {R}^{ {l}_{v} \times d } $, such that
+        ${l}_{v} = {l}_{k}$ this layer calculates returns both the attention
+         matrix and the $ A \times V $ product
         :param q: a query tensor of shape [b, l_q,  d]
         :param k: a key tensor of shape [b, l_k, d]
         :param v: a value tensor of shape [b, l_v, d], such that l_v == l_k
-        :return: the $ A \\times V $ tensor of shape [b, l_v, d], a
+        :return: $ A \times V $ tensor of shape [b, l_v, d], attention
+        matrix of shape [b, l_q, l_k]
         """
-        d = tf.shape(q)[-1]
-        scale = tf.sqrt(tf.cast(d, dtype=self.dtype))
+        d = K.shape(q)[-1]
+        scaling_factor = K.sqrt(K.cast(d, dtype=K.floatx()))
         # Q \times {K}^{T} => shape = [b, l_q, l_k]
-        similarity = layers.Lambda(
-            lambda x: K.batch_dot(x[0], x[1], axes=[2, 2]) / scale
-        )([q, k])
-        att = layers.Activation('softmax')(similarity)
-        att_drop = self.dropout(att) if self.dropout else att
+        similarity = BatchDot(axes=(2, 2))([q, k])
+        att_scaled = layers.Activation('softmax')(similarity / scaling_factor)
+        att_drop = self.dropout(att_scaled) if self.dropout else att_scaled
         # A \times V => shape = [b, l_v, d]
-        att_v = layers.Lambda(lambda x: K.batch_dot(x[0], x[1]))([att_drop, v])
-        return att_v, att
+        att_v = BatchDot(axes=None)([att_drop, v])
+        return [att_v, att_drop if self.return_drop else att_scaled]
+
+    def compute_output_shape(self, input_shape):
+        q_shape, k_shape, v_shape = input_shape
+        b_q, l_q, d_q = q_shape
+        b_k, l_k, d_k = k_shape
+        b_v, l_v, d_v = v_shape
+        # TODO check that:
+        #     1. b_q == b_k == b_v (if they are not None)
+        #     2. d_q == d_k; these must not be None
+        #     3. l_k == l_v; these must not be None
+        #     4. d_v is not None
+        # if not (b_q is None or b_k is None) and b_q != b_k:
+        #     raise ValueError(
+        #         '...'
+        #     )
+        # if not (d_q is None or d_k is None) and d_q != d_k:
+        #     raise ValueError(
+        #         '...'
+        #     )
+        product_shape = (b_q, l_v, d_v)
+        attention_shape = (b_q, l_q, l_k)
+        return [product_shape, attention_shape]
 
 
-class MultiHeadAttention:
+class MultiHeadAttention(layers.Layer):
     """
     Transform a single-headed attention block into a multi-headed attention
     """
 
-    def __init__(self, attention: AttentionBlock, l_q: int, l_k: int, r: int, d_r: int,
-                 dtype=K.floatx()):
+    def __init__(self, attention: QKVAttention, r: int, d_r: int, **kwargs):
         # TODO check d and r compatibility
         # TODO check dropout
+        super().__init__(**kwargs)
         self.attention = attention
-        self.l_q = l_q
-        self.l_k = l_k
         self.r = r
         self.d_r = d_r
         self.d = d_r * r
-        self.dtype = dtype
+        # head splitter and merger
+        self.splitter = SplitHeads(self.r)
+        self.merger = MergeHeads(self.r)
+        self.att_grouper = GroupAttentions(self.r)
+        # create linear mappings for Q, K and V
+        self.q_map = layers.Dense(self.d, use_bias=False)
+        self.k_map = layers.Dense(self.d, use_bias=False)
+        self.v_map = layers.Dense(self.d, use_bias=False)
+        # create a linear mapping for A \times V
+        self.att_v_map = layers.Dense(self.d, use_bias=False)
 
-    def split(self, x: tf.Tensor) -> tf.Tensor:
-        """
-        Using this instead of functools.partial(util.split_heads, self.r)
-        to avoid closures. For more details see docs on util.split_heads
-        :param x:
-        :return:
-        """
-        return util.split_heads(self.r, x)
+    def call(self, inputs, **kwargs) -> t.List[KTensor]:
+        q, k, v = inputs
+        return self._call(q, k, v)
 
-    def merge(self, x: tf.Tensor) -> tf.Tensor:
-        """
-        Using this instead of functools.partial(util.merge_heads, self.r)
-        to avoid closures. For more details see docs on util.merge_heads
-        :param x:
-        :return:
-        """
-        return util.merge_heads(self.r, x)
-
-    def group(self, x: tf.Tensor) -> tf.Tensor:
-        """
-        Using this instead of functools.partial(util.group_attentions, self.r)
-        to avoid closures. For more details see docs on util.group_attentions
-        :param x:
-        :return:
-        """
-        return util.group_attentions(self.r, x)
-
-    def __call__(self, q: util.KTensor, k: util.KTensor, v: util.KTensor) \
-            -> t.Tuple[util.KTensor, util.KTensor]:
+    def _call(self, q: KTensor, k: KTensor, v: KTensor) -> t.List[KTensor]:
         """
         :param q:
         :param k:
@@ -149,39 +282,32 @@ class MultiHeadAttention:
         :return: returns a grouped attention matrix (for more details see
         util.group_attentions)
         """
-        # create linear mappings for Q, K and V
-        print('Q', tf.shape(q))
-        q_map = layers.Dense(self.d, use_bias=False)
-        k_map = layers.Dense(self.d, use_bias=False)
-        v_map = layers.Dense(self.d, use_bias=False)
         # transform subspaces and split heads
-        q_split = layers.Lambda(self.split)(q_map(q))
-        k_split = layers.Lambda(self.split)(k_map(k))
-        v_split = layers.Lambda(self.split)(v_map(v))
-        print('splits', tf.shape(q_split)[-1], tf.shape(k_split)[-1], tf.shape(v_split)[-1])
+        q_split = self.splitter(self.q_map(q))
+        k_split = self.splitter(self.k_map(k))
+        v_split = self.splitter(self.v_map(v))
         # calculate attention heads
-        att_v_split, att_split = self.attention(q_split, k_split, v_split)
-        # create a linear mapping for A \times V
-        att_v_map = layers.Dense(self.d, use_bias=False)
+        att_v_split, att_split = self.attention([q_split, k_split, v_split])
         # merge heads and apply a linear map
-        # att_v_merged = layers.Lambda(self.merge, output_shape=(self.l_k, self.d))(att_v_split)
-        att_v_merged = layers.Lambda(
-            self.merge,
-            output_shape=(lambda s: (_safe_intdiv(s[0], self.r), s[1], self.d))
-        )(att_v_split)
-        att_v = att_v_map(att_v_merged)
-        # att_groups = layers.Lambda(self.group, output_shape=(self.l_q, self.r, self.l_k))(att_split)
-        att_groups = layers.Lambda(
-            self.group,
-            output_shape=(lambda s: (_safe_intdiv(s[0], self.r), s[1], self.r, s[2]))
-        )(att_split)
-        return att_v, att_groups
+        att_v_merged = self.merger(att_v_split)
+        att_v = self.att_v_map(att_v_merged)
+        att_groups = self.att_grouper(att_split)
+        return [att_v, att_groups]
 
-def _safe_intdiv(a, b):
-    try:
-        return a // b
-    except TypeError:
-        return None
+    def compute_output_shape(self, input_shape):
+        q_shape, k_shape, v_shape = input_shape
+        q_split_shape = self.splitter.compute_output_shape(q_shape)
+        k_split_shape = self.splitter.compute_output_shape(k_shape)
+        v_split_shape = self.splitter.compute_output_shape(v_shape)
+        att_v_split_shape, att_split_shape = self.attention.compute_output_shape(
+            [q_split_shape, k_split_shape, v_split_shape]
+        )
+        att_v_merge_shape = self.merger.compute_output_shape(att_v_split_shape)
+        att_v_shape = self.att_v_map.compute_output_shape(att_v_merge_shape)
+        att_groups_shape = self.att_grouper.compute_output_shape(
+            att_split_shape)
+        return [att_v_shape, att_groups_shape]
+
 
 if __name__ == '__main__':
     raise RuntimeError
