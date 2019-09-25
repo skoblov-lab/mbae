@@ -2,6 +2,7 @@ import typing as t
 
 import tensorflow as tf
 from keras import backend as K, layers, initializers
+from fn import F
 
 from sklab.attention import util
 
@@ -11,7 +12,7 @@ KTensor = t.NewType('KTensor', tf.Tensor)
 # TODO find a way to specify a list of length 3 as input and a list
 # TODO of length 2 as output
 QKVAttention = t.Callable[[t.List[KTensor]], t.List[KTensor]]
-
+Activation = t.Callable[[KTensor], KTensor]
 
 # TODO implement as Layer and Model objects
 
@@ -171,6 +172,29 @@ class GroupAttentions(layers.Layer):
         rb, l_q, l_k = input_shape
         b = None if rb is None else rb // self.r
         return b, l_q, self.r, l_k
+
+
+class PositionFFN(layers.Layer):
+    def __init__(self, activation: layers.Activation, d_hid, d_out,
+                 as_cnn=False, **kwargs):
+        super().__init__(**kwargs)
+        self.activation = activation
+        self.d_hid = d_hid
+        self.d_out = d_out
+        if as_cnn:
+            self.hidden = layers.Conv1D(self.d_hid, 1, activation=self.activation)
+            self.out = layers.Conv1D(self.d_out, activation=None)
+        else:
+            self.hidden = layers.Dense(self.d_hid, activation=self.activation)
+            self.out = layers.Dense(self.d_out, activation=None)
+
+    def call(self, inputs, **kwargs):
+        return (F(self.hidden) >> F(self.output))(inputs)
+
+    def compute_output_shape(self, input_shape):
+        return (
+            F(self.hidden.compute_output_shape) >> self.out.compute_output_shape
+        )(input_shape)
 
 
 class ScaledDotProductAttention(layers.Layer):
