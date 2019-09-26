@@ -183,7 +183,7 @@ class PositionFFN(layers.Layer):
         self.d_out = d_out
         if as_cnn:
             self.hidden = layers.Conv1D(self.d_hid, 1, activation=None)
-            self.out = layers.Conv1D(self.d_out, activation=None)
+            self.out = layers.Conv1D(self.d_out, 1, activation=None)
         else:
             self.hidden = layers.Dense(self.d_hid, activation=None)
             self.out = layers.Dense(self.d_out, activation=None)
