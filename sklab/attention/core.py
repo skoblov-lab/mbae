@@ -182,14 +182,14 @@ class PositionFFN(layers.Layer):
         self.d_hid = d_hid
         self.d_out = d_out
         if as_cnn:
-            self.hidden = layers.Conv1D(self.d_hid, 1, activation=self.activation)
+            self.hidden = layers.Conv1D(self.d_hid, 1, activation=None)
             self.out = layers.Conv1D(self.d_out, activation=None)
         else:
-            self.hidden = layers.Dense(self.d_hid, activation=self.activation)
+            self.hidden = layers.Dense(self.d_hid, activation=None)
             self.out = layers.Dense(self.d_out, activation=None)
 
     def call(self, inputs, **kwargs):
-        return (F(self.hidden) >> F(self.output))(inputs)
+        return (F(self.hidden) >> self.activation >> self.out)(inputs)
 
     def compute_output_shape(self, input_shape):
         return (
@@ -265,7 +265,7 @@ class ScaledDotProductAttention(layers.Layer):
         #     raise ValueError(
         #         '...'
         #     )
-        product_shape = (b_q, l_v, d_v)
+        product_shape = (b_q, l_q, d_q)
         attention_shape = (b_q, l_q, l_k)
         return [product_shape, attention_shape]
 
@@ -328,8 +328,7 @@ class MultiHeadAttention(layers.Layer):
         )
         att_v_merge_shape = self.merger.compute_output_shape(att_v_split_shape)
         att_v_shape = self.att_v_map.compute_output_shape(att_v_merge_shape)
-        att_groups_shape = self.att_grouper.compute_output_shape(
-            att_split_shape)
+        att_groups_shape = self.att_grouper.compute_output_shape(att_split_shape)
         return [att_v_shape, att_groups_shape]
 
 
