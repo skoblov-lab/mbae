@@ -1,9 +1,5 @@
-import typing as t
-
 import tensorflow as tf
-#from tensorflow._api.v1.keras import backend as K, layers, models, optimizers, \
-#    activations, initializers
-from keras import backend as K, layers
+from keras import backend as K
 
 
 def split_heads(r: int, x: tf.Tensor) -> tf.Tensor:

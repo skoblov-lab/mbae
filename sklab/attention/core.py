@@ -1,3 +1,4 @@
+import abc
 import typing as t
 
 import tensorflow as tf
@@ -11,8 +12,8 @@ KTensor = t.NewType('KTensor', tf.Tensor)
 
 # TODO find a way to specify a list of length 3 as input and a list
 # TODO of length 2 as output
-QKVAttention = t.Callable[[t.List[KTensor]], t.List[KTensor]]
-Activation = t.Callable[[KTensor], KTensor]
+
+A = t.TypeVar('A')
 
 # TODO implement as Layer and Model objects
 
@@ -197,7 +198,36 @@ class PositionFFN(layers.Layer):
         )(input_shape)
 
 
-class ScaledDotProductAttention(layers.Layer):
+class QKVAttention(layers.Layer, metaclass=abc.ABCMeta):
+
+    @staticmethod
+    def unpack_qkv(inputs: t.Union[t.List[A], A]) -> t.List:
+        # TODO update docs to reflect the Union input type
+        """
+        :param inputs: if `len(inputs) == 1`, then `q = k = v = inputs[0]`;
+        if `len(inputs) == 2`, then `q = inputs[0]` and k = v = inputs[1]`;
+        if `len(inputs) == 3`, then `q, k, v = inputs`
+        :return:
+        """
+        inputs_ = inputs if isinstance(inputs, list) else [inputs]
+        nargs = len(inputs_)
+        if not 1 <= nargs <= 3:
+            raise ValueError(
+                '...'
+            )
+        q, k, v = (
+            inputs_ if nargs == 3 else
+            [inputs_[0], inputs_[1], inputs_[1]] if nargs == 2 else
+            inputs_ * 3
+        )
+        return [q, k, v]
+
+    @abc.abstractmethod
+    def call(self, inputs: t.List[KTensor], **kwargs) -> t.List[KTensor]:
+        pass
+
+
+class QKVScaledDotAttention(QKVAttention):
     """
     Build a subgraph for scaled dot product attention.
     """
@@ -213,7 +243,14 @@ class ScaledDotProductAttention(layers.Layer):
         self.return_drop = return_drop
 
     def call(self, inputs: t.List[KTensor], **kwargs) -> t.List[KTensor]:
-        q, k, v = inputs
+        """
+        :param inputs: if `len(inputs) == 1`, then `q = k = v = inputs[0]`;
+        if `len(inputs) == 2`, then `q = inputs[0]` and k = v = inputs[1]`;
+        if `len(inputs) == 3`, then `q, k, v = inputs`
+        :param kwargs:
+        :return:
+        """
+        q, k, v = self.unpack_qkv(inputs)
         return self._call(q, k, v)
 
     # TODO merge call and _call
@@ -248,7 +285,7 @@ class ScaledDotProductAttention(layers.Layer):
         return [att_v, att_drop if self.return_drop else att_scaled]
 
     def compute_output_shape(self, input_shape):
-        q_shape, k_shape, v_shape = input_shape
+        q_shape, k_shape, v_shape = self.unpack_qkv(input_shape)
         b_q, l_q, d_q = q_shape
         b_k, l_k, d_k = k_shape
         b_v, l_v, d_v = v_shape
@@ -257,6 +294,7 @@ class ScaledDotProductAttention(layers.Layer):
         #     2. d_q == d_k; these must not be None
         #     3. l_k == l_v; these must not be None
         #     4. d_v is not None
+        # TODO move shape validation into a separate method
         # if not (b_q is None or b_k is None) and b_q != b_k:
         #     raise ValueError(
         #         '...'
@@ -270,7 +308,7 @@ class ScaledDotProductAttention(layers.Layer):
         return [product_shape, attention_shape]
 
 
-class MultiHeadAttention(layers.Layer):
+class QKVMultiHeadAttention(QKVAttention):
     """
     Transform a single-headed attention block into a multi-headed attention
     """
@@ -295,7 +333,7 @@ class MultiHeadAttention(layers.Layer):
         self.att_v_map = layers.Dense(self.d, use_bias=False)
 
     def call(self, inputs, **kwargs) -> t.List[KTensor]:
-        q, k, v = inputs
+        q, k, v = self.unpack_qkv(inputs)
         return self._call(q, k, v)
 
     def _call(self, q: KTensor, k: KTensor, v: KTensor) -> t.List[KTensor]:
@@ -319,7 +357,7 @@ class MultiHeadAttention(layers.Layer):
         return [att_v, att_groups]
 
     def compute_output_shape(self, input_shape):
-        q_shape, k_shape, v_shape = input_shape
+        q_shape, k_shape, v_shape = self.unpack_qkv(input_shape)
         q_split_shape = self.splitter.compute_output_shape(q_shape)
         k_split_shape = self.splitter.compute_output_shape(k_shape)
         v_split_shape = self.splitter.compute_output_shape(v_shape)
