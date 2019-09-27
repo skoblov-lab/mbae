@@ -255,7 +255,34 @@ class PositionFFN(layers.Layer):
         )(input_shape)
 
 
+class AttentionMasker(layers.Layer, metaclass=abc.ABCMeta):
+
+    # def __init__(self, mask: KTensor, **kwargs):
+    #     super().__init__(**kwargs)
+    #     self.mask = mask
+
+    @abc.abstractmethod
+    def call(self, inputs: t.List[KTensor], **kwargs) -> KTensor:
+        pass
+
+
+class QueryKeySimilarityMasker(AttentionMasker):
+
+    def call(self, inputs: t.List[KTensor], **kwargs) -> KTensor:
+        similarity, mask_binary = inputs
+        mask = (-1e+9) * (1.0 - K.cast(mask_binary, K.floatx()))
+        return layers.Add()([similarity, mask])
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0]
+
+
 class QKVAttention(layers.Layer, metaclass=abc.ABCMeta):
+
+    @property
+    @abc.abstractmethod
+    def masker(self) -> t.Optional[AttentionMasker]:
+        pass
 
     @staticmethod
     def unpack_qkv(inputs: t.Union[t.List[A], A]) -> t.List:
@@ -284,29 +311,13 @@ class QKVAttention(layers.Layer, metaclass=abc.ABCMeta):
         pass
 
 
-# class AttentionMask(layers.Layer, metaclass=abc.ABCMeta):
-#
-#     def __init__(self, mask: KTensor, **kwargs):
-#         super().__init__(**kwargs)
-#         self.mask = mask
-#
-#     @abc.abstractmethod
-#     def call(self, inputs: KTensor, **kwargs) -> KTensor:
-#         pass
-#
-#
-# class KeyMask(AttentionMask):
-#
-#     def call(self, inputs: KTensor, **kwargs) -> KTensor:
-#         pass
-
-
 class ScaledDotAttention(QKVAttention):
     """
     Build a subgraph for scaled dot product attention.
     """
 
-    def __init__(self, dropout: float = None, return_drop=False, **kwargs):
+    def __init__(self, dropout: float = None, return_drop=False,
+                 masker: AttentionMasker = None, **kwargs):
         """
         :param dropout:
         :param return_drop: return attention matrix after dropout
@@ -315,8 +326,14 @@ class ScaledDotAttention(QKVAttention):
         super().__init__(**kwargs)
         self.dropout = layers.Dropout(dropout) if dropout else util.identity
         self.return_drop = return_drop
+        self._masker = masker
 
-    def call(self, inputs: t.List[KTensor], mask=None, **kwargs) -> t.List[KTensor]:
+    @property
+    def masker(self) -> t.Optional[AttentionMasker]:
+        return self._masker
+
+    def call(self, inputs: t.List[KTensor], attention_mask: KTensor = None,
+             **kwargs) -> t.List[KTensor]:
         """
         :param inputs: if `len(inputs) == 1`, then `q = k = v = inputs[0]`;
         if `len(inputs) == 2`, then `q = inputs[0]` and k = v = inputs[1]`;
@@ -324,11 +341,13 @@ class ScaledDotAttention(QKVAttention):
         :param kwargs:
         :return:
         """
+        if attention_mask is not None and self.masker is None:
+            raise ValueError('...')
         q, k, v = self.unpack_qkv(inputs)
-        return self._call(q, k, v)
+        return self._call(q, k, v, mask=attention_mask)
 
     # TODO merge call and _call
-    def _call(self, q: KTensor, k: KTensor, v: KTensor) -> t.List[KTensor]:
+    def _call(self, q: KTensor, k: KTensor, v: KTensor, mask=None) -> t.List[KTensor]:
         r"""
         Argument shape legend: b - batch, l - length (number of entries in a
         sequence), d – entry length (embedding dimensions)
@@ -352,11 +371,16 @@ class ScaledDotAttention(QKVAttention):
         scaling_factor = K.sqrt(K.cast(d, dtype=K.floatx()))
         # Q \times {K}^{T} => shape = [b, l_q, l_k]
         similarity = BatchDot(axes=(2, 2))([q, k])
-        att_scaled = layers.Activation('softmax')(similarity / scaling_factor)
-        att_drop = self.dropout(att_scaled)
+        similarity_masked = (
+            similarity if mask is None else self.masker([similarity, mask])
+        )
+        attention = layers.Activation('softmax')(
+            similarity_masked / scaling_factor
+        )
+        attention_drop = self.dropout(attention)
         # A \times V => shape = [b, l_v, d]
-        att_v = BatchDot(axes=None)([att_drop, v])
-        return [att_v, att_drop if self.return_drop else att_scaled]
+        att_v = BatchDot(axes=None)([attention_drop, v])
+        return [att_v, attention_drop if self.return_drop else attention]
 
     def compute_output_shape(self, input_shape):
         q_shape, k_shape, v_shape = self.unpack_qkv(input_shape)
@@ -389,7 +413,7 @@ class MultiHeadAttention(QKVAttention):
 
     def __init__(self, attention: QKVAttention, r: int, d_r: int, **kwargs):
         # TODO check d and r compatibility
-        # TODO check dropout
+        # TODO ? add another dropout?
         super().__init__(**kwargs)
         self.attention = attention
         self.r = r
@@ -426,11 +450,20 @@ class MultiHeadAttention(QKVAttention):
         else:
             raise ValueError('...')
 
-    def call(self, inputs, **kwargs) -> t.List[KTensor]:
-        q, k, v = self.unpack_qkv(inputs)
-        return self._call(q, k, v)
+    @property
+    def masker(self) -> t.Optional[AttentionMasker]:
+        # TODO (?) wrap self.attention.masker in an adapter-layer?
+        return self.attention.masker
 
-    def _call(self, q: KTensor, k: KTensor, v: KTensor) -> t.List[KTensor]:
+    def call(self, inputs: t.List[KTensor], attention_mask: KTensor = None,
+             **kwargs) -> t.List[KTensor]:
+        if attention_mask is not None and self.masker is None:
+            raise ValueError('...')
+
+        q, k, v = self.unpack_qkv(inputs)
+        return self._call(q, k, v, mask_split=attention_mask)
+
+    def _call(self, q: KTensor, k: KTensor, v: KTensor, mask_split=None) -> t.List[KTensor]:
         """
         :param q:
         :param k:
@@ -438,12 +471,19 @@ class MultiHeadAttention(QKVAttention):
         :return: returns a grouped attention matrix (for more details see
         util.group_attentions)
         """
+        # repeat mask for each head
+        mask_split = (
+            None if mask_split is None else
+            K.repeat_elements(mask_split, self.r, 0)
+        )
         # transform subspaces and split heads
         q_split = self.splitter(self.q_map(q))
         k_split = self.splitter(self.k_map(k))
         v_split = self.splitter(self.v_map(v))
         # calculate attention heads
-        att_v_split, att_split = self.attention([q_split, k_split, v_split])
+        att_v_split, att_split = self.attention(
+            [q_split, k_split, v_split], attention_mask=mask_split
+        )
         # merge heads and apply a linear map
         att_v_merged = self.merger(att_v_split)
         att_v = self.att_v_map(att_v_merged)
