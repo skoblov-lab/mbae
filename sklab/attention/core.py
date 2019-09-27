@@ -175,13 +175,68 @@ class GroupAttentions(layers.Layer):
         return b, l_q, self.r, l_k
 
 
+# class Residual(layers.Wrapper):
+#
+#     def call(self, inputs: KTensor, **kwargs) -> KTensor:
+#         if not isinstance(inputs, tf.Tensor):
+#             raise ValueError(
+#                 'Residual layers cannot wrap layers of arity != 1'
+#             )
+#         output: KTensor = self.layer(inputs)
+#         if not isinstance(output, tf.Tensor):
+#             raise ValueError(
+#                 'Residual layers cannot wrap layers returning multiple tensors'
+#             )
+#         if K.int_shape(inputs) != K.int_shape(output):
+#             raise ValueError('...')
+#         return layers.Add()([inputs, output])
+
+
+class Residual(layers.Layer):
+
+    def __init__(self, layer: t.Callable[[KTensor], KTensor], weighted=False,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.layer = layer
+        self.weighted = weighted
+        self.alpha = None
+
+    def build(self, input_shape):
+        if self.weighted:
+            self.alpha = self.add_weight(
+                name='alpha', shape=(1,),
+                initializer=initializers.Zeros(), trainable=True
+            )
+        super().build(input_shape)
+
+    def call(self, inputs: KTensor, **kwargs) -> KTensor:
+        if not isinstance(inputs, tf.Tensor):
+            raise ValueError(
+                'Residual layers cannot wrap layers of arity != 1'
+            )
+        output: KTensor = self.layer(inputs)
+        if not isinstance(output, tf.Tensor):
+            raise ValueError(
+                'Residual layers cannot wrap layers returning multiple tensors'
+            )
+        if K.int_shape(inputs) != K.int_shape(output):
+            raise ValueError('...')
+        # scale input if necessary
+        inputs_scaled = (
+            inputs if not self.weighted else
+            K.sigmoid(self.alpha) * inputs
+        )
+        return layers.Add()([inputs_scaled, output])
+
+
 class PositionFFN(layers.Layer):
     def __init__(self, activation: layers.Activation, d_hid, d_out,
-                 as_cnn=False, **kwargs):
+                 dropout: float = None, as_cnn=False, **kwargs):
         super().__init__(**kwargs)
         self.activation = activation
         self.d_hid = d_hid
         self.d_out = d_out
+        self.dropout = layers.Dropout(dropout) if dropout else util.identity
         if as_cnn:
             self.hidden = layers.Conv1D(self.d_hid, 1, activation=None)
             self.out = layers.Conv1D(self.d_out, 1, activation=None)
@@ -190,7 +245,9 @@ class PositionFFN(layers.Layer):
             self.out = layers.Dense(self.d_out, activation=None)
 
     def call(self, inputs, **kwargs):
-        return (F(self.hidden) >> self.activation >> self.out)(inputs)
+        return (
+            F(self.hidden) >> self.activation >> self.out >> self.dropout
+        )(inputs)
 
     def compute_output_shape(self, input_shape):
         return (
@@ -227,22 +284,39 @@ class QKVAttention(layers.Layer, metaclass=abc.ABCMeta):
         pass
 
 
-class QKVScaledDotAttention(QKVAttention):
+# class AttentionMask(layers.Layer, metaclass=abc.ABCMeta):
+#
+#     def __init__(self, mask: KTensor, **kwargs):
+#         super().__init__(**kwargs)
+#         self.mask = mask
+#
+#     @abc.abstractmethod
+#     def call(self, inputs: KTensor, **kwargs) -> KTensor:
+#         pass
+#
+#
+# class KeyMask(AttentionMask):
+#
+#     def call(self, inputs: KTensor, **kwargs) -> KTensor:
+#         pass
+
+
+class ScaledDotAttention(QKVAttention):
     """
     Build a subgraph for scaled dot product attention.
     """
 
-    def __init__(self, dropout: float, return_drop=False, **kwargs):
+    def __init__(self, dropout: float = None, return_drop=False, **kwargs):
         """
         :param dropout:
         :param return_drop: return attention matrix after dropout
         :param kwargs:
         """
         super().__init__(**kwargs)
-        self.dropout = layers.Dropout(dropout) if dropout else None
+        self.dropout = layers.Dropout(dropout) if dropout else util.identity
         self.return_drop = return_drop
 
-    def call(self, inputs: t.List[KTensor], **kwargs) -> t.List[KTensor]:
+    def call(self, inputs: t.List[KTensor], mask=None, **kwargs) -> t.List[KTensor]:
         """
         :param inputs: if `len(inputs) == 1`, then `q = k = v = inputs[0]`;
         if `len(inputs) == 2`, then `q = inputs[0]` and k = v = inputs[1]`;
@@ -279,7 +353,7 @@ class QKVScaledDotAttention(QKVAttention):
         # Q \times {K}^{T} => shape = [b, l_q, l_k]
         similarity = BatchDot(axes=(2, 2))([q, k])
         att_scaled = layers.Activation('softmax')(similarity / scaling_factor)
-        att_drop = self.dropout(att_scaled) if self.dropout else att_scaled
+        att_drop = self.dropout(att_scaled)
         # A \times V => shape = [b, l_v, d]
         att_v = BatchDot(axes=None)([att_drop, v])
         return [att_v, att_drop if self.return_drop else att_scaled]
@@ -308,7 +382,7 @@ class QKVScaledDotAttention(QKVAttention):
         return [product_shape, attention_shape]
 
 
-class QKVMultiHeadAttention(QKVAttention):
+class MultiHeadAttention(QKVAttention):
     """
     Transform a single-headed attention block into a multi-headed attention
     """
@@ -389,6 +463,9 @@ class QKVMultiHeadAttention(QKVAttention):
         att_groups_shape = self.att_grouper.compute_output_shape(att_split_shape)
         return [att_v_shape, att_groups_shape]
 
+
+class Encoder(layers.Layer):
+    pass
 
 
 if __name__ == '__main__':
