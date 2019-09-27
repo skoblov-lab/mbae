@@ -321,16 +321,36 @@ class QKVMultiHeadAttention(QKVAttention):
         self.r = r
         self.d_r = d_r
         self.d = d_r * r
-        # head splitter and merger
-        self.splitter = SplitHeads(self.r)
-        self.merger = MergeHeads(self.r)
-        self.att_grouper = GroupAttentions(self.r)
-        # create linear mappings for Q, K and V
-        self.q_map = layers.Dense(self.d, use_bias=False)
-        self.k_map = layers.Dense(self.d, use_bias=False)
-        self.v_map = layers.Dense(self.d, use_bias=False)
-        # create a linear mapping for A \times V
-        self.att_v_map = layers.Dense(self.d, use_bias=False)
+        if r > 1:
+            # head splitter and merger
+            self.splitter = SplitHeads(self.r)
+            self.merger = MergeHeads(self.r)
+            self.att_grouper = GroupAttentions(self.r)
+            # create linear mappings for Q, K and V
+            self.q_map = layers.Dense(self.d, use_bias=False)
+            self.k_map = layers.Dense(self.d, use_bias=False)
+            self.v_map = layers.Dense(self.d, use_bias=False)
+            # create a linear mapping for A \times V
+            self.att_v_map = layers.Dense(self.d, use_bias=False)
+        elif r == 1:
+            # single-headed mode: simply wrap self.attention without doing
+            # anything except expanding the -2 axis of the attention matrix
+            # for its shape to be congruent with the multi-headed version
+            identity = layers.Lambda(
+                util.identity, output_shape=util.identity
+            )
+            self.splitter = identity
+            self.merger = identity
+            self.att_grouper = layers.Lambda(
+                lambda x: K.expand_dims(x, axis=-2),
+                output_shape=(lambda s: [s[0], s[1], 1, s[2]])
+            )
+            self.q_map = identity
+            self.k_map = identity
+            self.v_map = identity
+            self.att_v_map = identity
+        else:
+            raise ValueError('...')
 
     def call(self, inputs, **kwargs) -> t.List[KTensor]:
         q, k, v = self.unpack_qkv(inputs)
@@ -368,6 +388,7 @@ class QKVMultiHeadAttention(QKVAttention):
         att_v_shape = self.att_v_map.compute_output_shape(att_v_merge_shape)
         att_groups_shape = self.att_grouper.compute_output_shape(att_split_shape)
         return [att_v_shape, att_groups_shape]
+
 
 
 if __name__ == '__main__':
