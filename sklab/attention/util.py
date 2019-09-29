@@ -84,7 +84,7 @@ def group_attentions(r: int, attention_split: tf.Tensor) -> tf.Tensor:
 
 
 def frobenius(x, axes, eps=K.epsilon()):
-    return K.sqrt(K.sum(K.square(x), axis=axes)) + K.epsilon()
+    return K.sqrt(K.sum(K.square(x), axis=axes)) + eps
 
 
 def attention_regulariser(sparse: bool, attention_groups: tf.Tensor) -> tf.Tensor:
