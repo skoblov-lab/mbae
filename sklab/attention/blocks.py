@@ -8,8 +8,11 @@ from sklab.attention import core, util
 from sklab.attention.core import KTensor
 
 
-
-class Attention(core.QKVAttention):
+class TransformerAttention(core.QKVAttention):
+    """
+    A generalised version of attention block from the "Attention is All You
+    Need" paper.
+    """
 
     @property
     def masker(self) -> t.Optional[core.AttentionMasker]:
@@ -23,6 +26,7 @@ class Attention(core.QKVAttention):
                  ffn_activation: layers.Activation,
                  ffn_as_cnn: bool = False,
                  dropout: float = None,
+                 attention_regulariser: t.Callable[[KTensor], KTensor] = None,
                  **kwargs):
         super().__init__(**kwargs)
         # common
@@ -31,7 +35,10 @@ class Attention(core.QKVAttention):
         self.d = d_r * self.r
         self.dropout = dropout
         # attention
-        self.attention = core.MultiHeadAttention(attention, self.r, self.d_r)
+        self.attention_regulariser = attention_regulariser
+        self.attention = core.MultiHeadAttention(
+            attention, self.r, self.d_r, self.attention_regulariser
+        )
         self.norm_attention = core.LayerNormalisation()
         # ffn
         self.ffn_hid = ffn_hid
@@ -69,20 +76,14 @@ class Attention(core.QKVAttention):
 class Encoder(layers.Layer):
     def __init__(self,
                  depth: int,
-                 r: int,
-                 d_r: int,
                  attention_constructor: t.Callable[[int], core.QKVAttention],
-                 ffn_hid: int,
-                 ffn_activation: layers.Activation,
                  attention_regulariser: t.Optional[t.Callable[[KTensor], KTensor]],
-                 ffn_as_cnn: bool = False,
-                 dropout: float = None,
                  **kwargs):
         """
-        :param depth:
+        :param steps:
         :param r:
         :param d_r:
-        :param attention: a function of layer number (i.e. an integer
+        :param attention: a function of step number (i.e. an integer
         in range(0, depth)) and returning a QKVAttention instance
         :param ffn_hid:
         :param ffn_activation:
@@ -92,20 +93,8 @@ class Encoder(layers.Layer):
         """
         super().__init__(**kwargs)
         self.depth = depth
-        self.r = r
-        self.d_r = d_r
-        self.attention_constructor = attention_constructor
-        self.ffn_hid = ffn_hid
-        self.ffn_activation = ffn_activation
         self.attention_regulariser = attention_regulariser
-        self.ffn_as_cnn = ffn_as_cnn
-        self.dropout = dropout
-        self.layers: t.List[Attention] = [
-            Attention(self.r, self.d_r, self.attention_constructor(i),
-                      self.ffn_hid, self.ffn_activation, self.ffn_as_cnn,
-                      self.dropout)
-            for i in range(depth)
-        ]
+        self.steps = list(map(attention_constructor, range(self.depth)))
 
         def call(self, inputs: KTensor, **kwargs) -> KTensor:
             pass

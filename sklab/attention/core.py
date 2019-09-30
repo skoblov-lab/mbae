@@ -411,11 +411,23 @@ class MultiHeadAttention(QKVAttention):
     Transform a single-headed attention block into a multi-headed attention
     """
 
-    def __init__(self, attention: QKVAttention, r: int, d_r: int, **kwargs):
+    def __init__(self, attention: QKVAttention, r: int, d_r: int,
+                 regulariser: t.Callable[[KTensor], KTensor] = None, **kwargs):
+        """
+
+        :param attention:
+        :param r:
+        :param d_r:
+        :param regulariser: attention regulariser; the function must accept a
+        tensor of attention groups (see documentation on util.group_attentions)
+        and return a tensor of loss contributions.
+        :param kwargs:
+        """
         # TODO check d and r compatibility
         # TODO ? add another dropout?
         super().__init__(**kwargs)
         self.attention = attention
+        self.regulariser = regulariser
         self.r = r
         self.d_r = d_r
         self.d = d_r * r
@@ -461,9 +473,9 @@ class MultiHeadAttention(QKVAttention):
             raise ValueError('...')
 
         q, k, v = self.unpack_qkv(inputs)
-        return self._call(q, k, v, mask_split=attention_mask)
+        return self._call(q, k, v, mask=attention_mask)
 
-    def _call(self, q: KTensor, k: KTensor, v: KTensor, mask_split=None) -> t.List[KTensor]:
+    def _call(self, q: KTensor, k: KTensor, v: KTensor, mask=None) -> t.List[KTensor]:
         """
         :param q:
         :param k:
@@ -473,8 +485,8 @@ class MultiHeadAttention(QKVAttention):
         """
         # repeat mask for each head
         mask_split = (
-            None if mask_split is None else
-            K.repeat_elements(mask_split, self.r, 0)
+            None if mask is None else
+            K.repeat_elements(mask, self.r, 0)
         )
         # transform subspaces and split heads
         q_split = self.splitter(self.q_map(q))
@@ -488,6 +500,8 @@ class MultiHeadAttention(QKVAttention):
         att_v_merged = self.merger(att_v_split)
         att_v = self.att_v_map(att_v_merged)
         att_groups = self.att_grouper(att_split)
+        if self.r > 1 and self.regulariser is not None:
+            self.add_loss(losses=self.regulariser(att_groups), inputs=True)
         return [att_v, att_groups]
 
     def compute_output_shape(self, input_shape):

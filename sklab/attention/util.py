@@ -93,16 +93,15 @@ def attention_regulariser(sparse: bool, attention_groups: tf.Tensor) -> tf.Tenso
     $| A \times {A}^{T} - I |$ if `sparse` or $| A \times {A}^{T} |$ otherwise.
     Here $| |$ denotes the Frobenius norm (the L2 matrix norm).
     """
-    shape_att = K.shape(attention_groups)
-    b, l_q, r, l_k = shape_att[0], shape_att[1], shape_att[2], shape_att[3]
+    b, l_q, r, l_k = K.int_shape(attention_groups)
     # flatten the batch axis to produce a tensor of [r, l_k] attention groups
     groups = K.reshape(attention_groups, [-1, r, l_k])
     # calculate $A \times $
     self_sim = K.batch_dot(groups, groups, axes=[2, 2])
-    # subtract an idetity matrix if `sparse`
+    # subtract an identity matrix if `sparse`
     group_norms = frobenius(self_sim - K.eye(r) if sparse else self_sim, axes=[1, 2])
     # restore the batch structure
-    return K.reshape(group_norms, [b, l_q])
+    return K.reshape(group_norms, [-1, l_q])
 
 
 
