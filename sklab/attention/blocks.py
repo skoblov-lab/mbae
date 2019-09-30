@@ -5,13 +5,14 @@ from keras import backend as K, layers, initializers
 from fn import F
 
 from sklab.attention import core, util
-from sklab.attention.core import AttentionMasker
+from sklab.attention.core import KTensor
+
 
 
 class Attention(core.QKVAttention):
 
     @property
-    def masker(self) -> t.Optional[AttentionMasker]:
+    def masker(self) -> t.Optional[core.AttentionMasker]:
         return self.attention.masker
 
     def __init__(self,
@@ -41,9 +42,9 @@ class Attention(core.QKVAttention):
         self.norm_ffn = core.LayerNormalisation()
 
     def call(self,
-             inputs: t.List[core.KTensor],
-             attention_mask: core.KTensor = None,
-             **kwargs) -> t.List[core.KTensor]:
+             inputs: t.List[KTensor],
+             attention_mask: KTensor = None,
+             **kwargs) -> t.List[KTensor]:
         q, k, v = self.unpack_qkv(inputs)
         att_v, att = self.attention([q, k, v], attention_mask=attention_mask)
         # make a residual connection between Q and (A \times V) and normalise
@@ -61,6 +62,61 @@ class Attention(core.QKVAttention):
 
     def compute_output_shape(self, input_shape):
         return self.attention.compute_output_shape(input_shape)
+
+
+# TODO check that layers passed as arguments do not have trainable parameters
+
+class Encoder(layers.Layer):
+    def __init__(self,
+                 depth: int,
+                 r: int,
+                 d_r: int,
+                 attention_constructor: t.Callable[[int], core.QKVAttention],
+                 ffn_hid: int,
+                 ffn_activation: layers.Activation,
+                 attention_regulariser: t.Optional[t.Callable[[KTensor], KTensor]],
+                 ffn_as_cnn: bool = False,
+                 dropout: float = None,
+                 **kwargs):
+        """
+        :param depth:
+        :param r:
+        :param d_r:
+        :param attention: a function of layer number (i.e. an integer
+        in range(0, depth)) and returning a QKVAttention instance
+        :param ffn_hid:
+        :param ffn_activation:
+        :param ffn_as_cnn:
+        :param dropout:
+        :param kwargs:
+        """
+        super().__init__(**kwargs)
+        self.depth = depth
+        self.r = r
+        self.d_r = d_r
+        self.attention_constructor = attention_constructor
+        self.ffn_hid = ffn_hid
+        self.ffn_activation = ffn_activation
+        self.attention_regulariser = attention_regulariser
+        self.ffn_as_cnn = ffn_as_cnn
+        self.dropout = dropout
+        self.layers: t.List[Attention] = [
+            Attention(self.r, self.d_r, self.attention_constructor(i),
+                      self.ffn_hid, self.ffn_activation, self.ffn_as_cnn,
+                      self.dropout)
+            for i in range(depth)
+        ]
+
+        def call(self, inputs: KTensor, **kwargs) -> KTensor:
+            pass
+
+
+class Decoder(layers.Layer):
+    pass
+
+
+class CrossAttention(layers.Layer):
+    pass
 
 
 if __name__ == '__main__':
