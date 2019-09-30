@@ -82,7 +82,7 @@ class BatchDot(layers.Layer):
                 f'Can not do batch_dot on inputs with different batch sizes. '
                 f'Received inputs with shapes {x_shape} and {y_shape}.'
             )
-        # resolve different axes cases
+        # resolve different `axes` cases
         axes = (
             [self.axes, self.axes] if isinstance(self.axes, int) else
             list(self.axes) if self.axes is not None else
@@ -261,6 +261,20 @@ class QueryKeySimilarityMasker(AttentionMasker):
 
     def compute_output_shape(self, input_shape):
         return input_shape[0]
+
+
+class DummyMasker(AttentionMasker):
+    """
+    Does no masking
+    """
+
+    def call(self, inputs: t.List[KTensor], **kwargs) -> KTensor:
+        similarity, mask = inputs
+        return similarity
+
+    def compute_output_shape(self, input_shape):
+        similarity_shape, mask_shape = input_shape
+        return similarity_shape
 
 
 class QKVAttention(layers.Layer, metaclass=abc.ABCMeta):
