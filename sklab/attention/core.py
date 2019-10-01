@@ -174,46 +174,6 @@ class GroupAttentions(layers.Layer):
         b = None if rb is None else rb // self.r
         return b, l_q, self.r, l_k
 
-# TODO the Residual layer is not particularly useful without a more functional
-#      approach to layer composition
-
-# class Residual(layers.Layer):
-    #
-    # def __init__(self, layer: t.Callable[[KTensor], KTensor], weighted=False,
-    #              **kwargs):
-    #     super().__init__(**kwargs)
-    #     self.layer = layer
-    #     self.weighted = weighted
-    #     self.alpha = None
-    #
-    # def build(self, input_shape):
-    #     if self.weighted:
-    #         self.alpha = self.add_weight(
-    #             name='alpha', shape=(1,),
-    #             initializer=initializers.Zeros(), trainable=True
-    #         )
-    #     super().build(input_shape)
-    #
-    # def call(self, inputs: KTensor, **kwargs) -> KTensor:
-    #     if not isinstance(inputs, tf.Tensor):
-    #         raise ValueError(
-    #             'Residual layers cannot wrap layers of arity != 1'
-    #         )
-    #     output: KTensor = self.layer(inputs)
-    #     if not isinstance(output, tf.Tensor):
-    #         raise ValueError(
-    #             'Residual layers cannot wrap layers returning multiple '
-#                 'tensors'
-    #         )
-    #     if K.int_shape(inputs) != K.int_shape(output):
-    #         raise ValueError('...')
-    #     # scale input if necessary
-    #     inputs_scaled = (
-    #         inputs if not self.weighted else
-    #         K.sigmoid(self.alpha) * inputs
-    #     )
-    #     return layers.Add()([inputs_scaled, output])
-
 
 class PositionFFN(layers.Layer):
     def __init__(self, activation: layers.Activation, d_hid, d_out,
@@ -223,12 +183,25 @@ class PositionFFN(layers.Layer):
         self.d_hid = d_hid
         self.d_out = d_out
         self.dropout = layers.Dropout(dropout) if dropout else util.identity
-        if as_cnn:
+        self.as_cnn = as_cnn
+        self.hidden = None
+        self.out = None
+
+    def build(self, input_shape):
+        if self.as_cnn:
             self.hidden = layers.Conv1D(self.d_hid, 1, activation=None)
             self.out = layers.Conv1D(self.d_out, 1, activation=None)
         else:
             self.hidden = layers.Dense(self.d_hid, activation=None)
             self.out = layers.Dense(self.d_out, activation=None)
+        self.hidden.build(input_shape)
+        out_shape = self.hidden.compute_output_shape(input_shape)
+        self.out.build(out_shape)
+        self._trainable_weights = [
+            *self.hidden.trainable_weights,
+            *self.out.trainable_weights
+        ]
+        super().build(input_shape)
 
     def call(self, inputs, **kwargs):
         return (
