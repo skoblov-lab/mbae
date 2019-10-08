@@ -1,14 +1,51 @@
 import abc
 import typing as t
 
+import tensorflow as tf
 from keras import layers
+from keras import backend as K
+
+from sklab.attention import util
 
 
 A = t.TypeVar('A')
+# a Tensorflow Tensor augmented with Keras metadata
 KTensor = t.NewType('KTensor', tf.Tensor)
+KInputOutput = t.Union[KTensor, t.List[KTensor]]
+KTensorShape = t.Tuple[t.Optional[int], ...]
+KInputOutputShape = t.Union[KTensorShape, t.List[KTensorShape]]
 
 
-class AttentionMasker(layers.Layer, metaclass=abc.ABCMeta):
+class Block(metaclass=abc.ABCMeta):
+
+    # @property
+    # @abc.abstractmethod
+    # def trainable_layers(self) -> t.Dict[str, layers.Layer]:
+    #     pass
+
+    @abc.abstractmethod
+    def call(self, inputs: KInputOutput, **kwargs) -> KInputOutput:
+        pass
+
+    @abc.abstractmethod
+    def compute_output_shape(self, input_shape: KInputOutputShape) \
+            -> KInputOutputShape:
+        pass
+
+    def __call__(self, inputs, **kwargs) -> KInputOutput:
+        outputs = self.call(inputs, **kwargs)
+        return self.set_output_shape(inputs, outputs)
+
+    def set_output_shape(self, inputs: KInputOutput, outputs: KInputOutput) \
+            -> KInputOutput:
+        return layers.Lambda(
+            (lambda inputs_, outputs_: list(map(K.identity, outputs_)) if isinstance(outputs, list) else K.identity(outputs_)),
+            output_shape=self.compute_output_shape,
+            arguments={'outputs_': outputs}
+        )(inputs)
+
+
+class AttentionMasker(Block):
 
     # def __init__(self, mask: KTensor, **kwargs):
     #     super().__init__(**kwargs)
@@ -19,7 +56,18 @@ class AttentionMasker(layers.Layer, metaclass=abc.ABCMeta):
         pass
 
 
-class QKVAttention(layers.Layer, metaclass=abc.ABCMeta):
+class ActivityRegularizer(layers.Layer):
+
+    def __init__(self, activity_regularizer: t.Callable[[KTensor], KTensor],
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.activity_regularizer = activity_regularizer
+
+    def call(self, inputs: KTensor, **kwargs) -> KTensor:
+        return inputs
+
+
+class QKVAttention(Block):
 
     @property
     @abc.abstractmethod
