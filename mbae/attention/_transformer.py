@@ -5,9 +5,11 @@ from keras import backend as K, layers, initializers
 from fn import F
 
 import mbae.attention._base
-import mbae.attention._layers
+
+import mbae.attention.layers
+import mbae.attention.ops
 from mbae.attention import _core, util
-from mbae.attention._layers import KTensor
+from mbae.attention.base import KTensor
 
 
 class TransformerAttention(mbae.attention._base.QKVAttention):
@@ -37,14 +39,14 @@ class TransformerAttention(mbae.attention._base.QKVAttention):
         self.dropout = dropout
         # attention
         self.attention = _core.MultiHeadAttention(attention, self.r, self.d_r)
-        self.norm_attention = mbae.attention._layers.LayerNormalisation()
+        self.norm_attention = mbae.attention.layers.LayerNormalisation()
         # ffn
         self.ffn_hid = ffn_hid
         self.ffn_activation = ffn_activation
         self.ffn_as_cnn = ffn_as_cnn
         self.ffn = _core.PositionFFN(self.ffn_activation, self.ffn_hid, self.d,
                                      self.dropout, self.ffn_as_cnn)
-        self.norm_ffn = mbae.attention._layers.LayerNormalisation()
+        self.norm_ffn = mbae.attention.layers.LayerNormalisation()
 
     def call(self,
              inputs: t.List[KTensor],

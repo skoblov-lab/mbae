@@ -6,8 +6,9 @@ from keras import backend as K, layers
 from mbae.attention import util
 from mbae.attention._base import AttentionMasker, QKVAttention, \
     Block, KTensorShape
-from mbae.attention._layers import KTensor, BatchDot, SplitHeads, MergeHeads, \
+from mbae.attention.layers import BatchDot, SplitHeads, MergeHeads, \
     GroupAttentions
+from mbae.attention.base import KTensor
 
 # TODO find a way to specify a list of length 3 as input and a list
 # TODO of length 2 as output
