@@ -6,8 +6,6 @@ import tensorflow as tf
 from fn import F
 from keras import backend as K, layers
 
-from mbae.attention import util
-
 
 __all__ = ['DotProductAttention']
 
@@ -21,7 +19,7 @@ class DotProductAttention(layers.Layer):
 
     def __init__(self, r: int, dropout: float = 0,
                  attention_regularizer: t.Callable[[KTensor], KTensor] = None,
-                 **kwargs):
+                 dropout_seed: int = None, **kwargs):
         """
         :param r: the number of attention head; it must be a positive integer.
         :param dropout:
@@ -39,6 +37,7 @@ class DotProductAttention(layers.Layer):
         self.r = r
         self.dropout = dropout
         self.attention_regularizer = attention_regularizer
+        self.dropout_seed = dropout_seed
         # placeholders for subspace transforms used in multi-head attention
         self.q_map: t.Optional[KTensor] = None
         self.k_map: t.Optional[KTensor] = None
@@ -47,7 +46,7 @@ class DotProductAttention(layers.Layer):
 
     def build(self, input_shape: t.Union[KTensorShape, t.List[KTensorShape]]):
         shapes = unpack_qkv(input_shape)
-        (d_q, l_q), (d_k, l_k), (d_v, l_v) = map(op.itemgetter(1, 2), shapes)
+        (l_q, d_q), (l_k, d_k), (l_v, d_v) = map(op.itemgetter(1, 2), shapes)
         # validate Q, K, V shape compatibility
         if d_q != d_k:
             raise ValueError
@@ -55,18 +54,26 @@ class DotProductAttention(layers.Layer):
             raise ValueError
         # add transformation kernels for multi-head mode
         if self.r > 1:
-            self.add_weight(name='q_map', shape=(d_q, d_q),
-                            initializer='glorot_uniform', trainable=True)
-            self.add_weight(name='k_map', shape=(d_k, d_k),
-                            initializer='glorot_uniform', trainable=True)
-            self.add_weight(name='v_map', shape=(d_v, d_v),
-                            initializer='glorot_uniform', trainable=True)
-            self.add_weight(name='concat_map', shape=(d_v, d_v),
-                            initializer='glorot_uniform', trainable=True)
+            self.q_map = self.add_weight(
+                name='q_map', shape=(d_q, d_q),
+                initializer='glorot_uniform', trainable=True
+            )
+            self.k_map = self.add_weight(
+                name='k_map', shape=(d_k, d_k),
+                initializer='glorot_uniform', trainable=True
+            )
+            self.v_map = self.add_weight(
+                name='v_map', shape=(d_v, d_v),
+                initializer='glorot_uniform', trainable=True
+            )
+            self.concat_map = self.add_weight(
+                name='concat_map', shape=(d_v, d_v),
+                initializer='glorot_uniform', trainable=True
+            )
         super().build(input_shape)
 
     def call(self, inputs: t.Union[KTensor, t.List[KTensor]],
-             training: t.Optional[bool] = None, **kwargs) -> t.List[KTensor]:
+             training=None, **kwargs) -> t.List[KTensor]:
         """
         :param inputs
         :param training: defaults to True (although it is set to None for
@@ -77,23 +84,25 @@ class DotProductAttention(layers.Layer):
         # TODO add attention mask
         q, k, v = unpack_qkv(inputs)
         # calculate attentions
-        training_ = training or training is None
         att_v, attention = (
-            self._single_head(q, k, v, training=training_) if self.r == 1 else
-            self._multi_head(q, k, v, training=training_)
+            self._single_head(q, k, v, training=training) if self.r == 1 else
+            self._multi_head(q, k, v, training=training)
         )
         return [att_v, attention]
 
-    def _single_head(self, q, k, v, training: bool) -> t.Tuple[KTensor, KTensor]:
+    def _single_head(self, q, k, v, training) -> t.Tuple[KTensor, KTensor]:
         d = K.shape(q)[-1]
         scaling_factor = K.sqrt(K.cast(d, dtype=K.floatx()))
         product = K.batch_dot(q, k, axes=(2, 2))
-        attention = K.softmax(product / scaling_factor)
         # apply dropout mask if necessary
-        attention = self._dropout_mask(attention, training)
+        attention = dropout(K.softmax(product / scaling_factor),
+                            self.dropout,
+                            self.dropout_seed, training)
+        # attention = K.softmax(product / scaling_factor)
+        # attention = self._dropout_mask(attention, training)
         return K.batch_dot(attention, v), attention
 
-    def _multi_head(self, q, k, v, training: bool) -> t.Tuple[KTensor, KTensor]:
+    def _multi_head(self, q, k, v, training) -> t.Tuple[KTensor, KTensor]:
         # transform subspaces in Q, K and V
         q_prime = K.dot(q, self.q_map)
         k_prime = K.dot(k, self.k_map)
@@ -111,18 +120,19 @@ class DotProductAttention(layers.Layer):
         # group attentions
         att_groups = group_attentions(self.r, att_heads)
         # add regularization term
-        self.add_loss(self.attention_regularizer(att_groups), [q, k, v])
+        if self.attention_regularizer:
+            self.add_loss(self.attention_regularizer(att_groups), [q, k, v])
         return att_v, att_groups
 
-    def _dropout_mask(self, attention: KTensor, training: bool) -> KTensor:
-        if self.dropout:
-            dropout_mask = dropout_generator(K.ones_like(attention),
-                                             self.dropout, training)
-            attention_masked = attention * dropout_mask
-            # set learning phase
-            attention_masked._uses_learning_phase = training
-            return attention_masked
-        return attention
+    # def _dropout_mask(self, attention: KTensor, training) -> KTensor:
+    #     if self.dropout:
+    #         dropout_mask = dropout_generator(K.ones_like(attention),
+    #                                          self.dropout, training)
+    #         attention_masked = attention * dropout_mask
+    #         # set learning phase
+    #         attention_masked._uses_learning_phase = training
+    #         return attention_masked
+    #     return attention
 
     def compute_output_shape(self, input_shape) -> t.List[KTensorShape]:
         # TODO docs
@@ -131,9 +141,20 @@ class DotProductAttention(layers.Layer):
         _, l_k, __ = shape_k
         attention_shape = (
             (batch, l_q, l_k) if self.r == 1 else
-            (batch, l_q, self.r, d_q)
+            (batch, l_q, self.r, l_k)
         )
         return [shape_v, attention_shape]
+
+
+def dropout(inputs: KTensor, rate: float, seed=None, training=None):
+
+    def masked_inputs():
+        return K.dropout(inputs, rate, seed=seed)
+
+    return (
+        inputs if not (0 < rate < 1) else
+        K.in_train_phase(masked_inputs, inputs, training=training)
+    )
 
 
 def dropout_generator(mask: KTensor, prob: float, training: bool) \
@@ -249,16 +270,21 @@ def frobenius(x: KTensor, axes: t.List[int], eps=K.epsilon()):
 def attention_sparse_frobenius_norm(attention_groups: KTensor) -> KTensor:
     """
     For each attention group $A$  in `attention_groups` calculate
-    $| A \times {A}^{T} - I |$ if `sparse` or $| A \times {A}^{T} |$ otherwise.
-    Here $| |$ denotes the Frobenius norm (the L2 matrix norm).
+    $| A \times {A}^{T} - I |$, where $| |$ denotes the Frobenius norm
+    (the L2 matrix norm) and $I$ denotes the identity matrix.
+    :param attention_groups:
     """
-    b, l_q, r, l_k = K.int_shape(attention_groups)
-    # flatten the batch axis to produce a tensor of [r, l_k] attention groups
+    att_shape = K.shape(attention_groups)
+    l_q = att_shape[1]
+    r = att_shape[2]
+    l_k = att_shape[3]
+    # flatten the batch axis to produce b * l_q attention groups of form
+    # [r, l_k]
     groups = K.reshape(attention_groups, [-1, r, l_k])
     # calculate $A \times $
     self_sim = K.batch_dot(groups, groups, axes=[2, 2])
     # subtract an identity matrix if `sparse`
-    group_norms = frobenius(self_sim - K.eye(r), axes=[1, 2])
+    group_norms = frobenius(self_sim - K.eye(4), axes=[1, 2])
     # restore the batch structure
     return K.reshape(group_norms, [-1, l_q])
 
