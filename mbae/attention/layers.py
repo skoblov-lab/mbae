@@ -1,6 +1,8 @@
 import typing as t
+import operator as op
 
 from keras import layers, backend as K, initializers
+from keras.regularizers import Regularizer
 
 from mbae.attention.base import KTensor, KTensorShape
 from mbae.attention.ops import split_heads, merge_heads, group_attentions
@@ -43,6 +45,39 @@ class LayerNormalisation(layers.Layer):
 class StdGaussianVariationalDense(layers.Layer):
     # TODO
     pass
+
+
+class ActivityRegularizer(layers.Layer):
+    """
+    A wrapper-layer, adding an activity regularisation term to the model
+    """
+
+    def __init__(self, regularizer: Regularizer, **kwargs):
+        super().__init__(**kwargs)
+        self.activity_regularizer = regularizer
+
+    def get_config(self):
+        # TODO serialisation
+        pass
+
+    def compute_output_shape(self, input_shape: KTensorShape) -> KTensorShape:
+        return input_shape
+
+
+class ScaledDotProductAttention(layers.Layer):
+    # TODO docs
+
+    def call(self, inputs: t.List[KTensor], **kwargs) -> KTensor:
+        q, k = inputs
+        ndim = K.cast(K.shape(q)[-1], dtype=K.floatx())
+        product = K.batch_dot(q, k, axes=(2, 2))
+        return K.softmax(product / K.sqrt(ndim))
+
+    def compute_output_shape(self, input_shape: t.List[KTensorShape]) -> KTensorShape:
+        (b, l_q, d_q), (_, l_k, d_k) = input_shape
+        if d_q != d_k:
+            raise ValueError
+        return b, l_q, l_k
 
 
 class BatchDot(layers.Layer):
