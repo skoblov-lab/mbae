@@ -2,8 +2,9 @@ import typing as t
 import operator as op
 
 from keras import backend as K
-from keras.layers import Activation, Dense, Dropout, Lambda
+from keras.layers import Activation, Conv1D, Dense, Dropout, Lambda
 from keras.regularizers import Regularizer
+from fn import F
 
 from mbae.attention.base import A, KTensor, KTensorShape, Block
 from mbae.attention.layers import LayerNormalisation, ActivityRegularizer, \
@@ -12,6 +13,7 @@ from mbae.attention.regularizers import AttentionFrobeniusNorm
 
 
 class DotProductAttention(Block):
+    # TODO masking
 
     def __init__(self,
                  r: int,
@@ -93,6 +95,47 @@ class DotProductAttention(Block):
         v_split_weighted = BatchDot(axes=None)([weights_dropped, v_split])
         v_concat = self.merger(v_split_weighted)
         return self.concat_map(v_concat), self.grouper(weights_dropped)
+
+
+class PositionFFN(Block):
+
+    def __init__(self, activation: Activation, d_hid: int,
+                 hidden_dropout: float = 0.0, convolutional=False, **kwargs):
+        """
+
+        """
+        super().__init__(**kwargs)
+        # TODO argchecks
+        self.activation = activation
+        self.d_hid = d_hid
+        self.convolutional = convolutional
+        if not 0 <= hidden_dropout <= 1:
+            raise ValueError(
+                f'Dropout can be a float in [0, 1), received: {hidden_dropout}'
+            )
+        self.hidden_dropout = Dropout(hidden_dropout) if hidden_dropout else identity
+        # placeholders for transformation layers
+        self.hidden = None
+        self.output = None
+
+    def build(self, inputs: KTensor, **kwargs):
+        b, l, d = K.int_shape(inputs)
+        if self.convolutional:
+            self.hidden = Conv1D(self.d_hid, 1, activation=None)
+            self.output = Conv1D(d, 1, activation=None)
+        self.hidden = Dense(self.d_hid, activation=None)
+        self.output = Dense(d, activation=None)
+        super().build(inputs, **kwargs)
+
+    def __call__(self, inputs: KTensor, **kwargs) -> KTensor:
+        if not self.built:
+            self.build(inputs)
+        return (
+            F(self.hidden)
+            >> self.activation
+            >> self.hidden_dropout
+            >> self.output
+        )(inputs)
 
 
 def unpack_qkv(inputs: t.Union[A, t.List[A]]) -> t.List[A]:
