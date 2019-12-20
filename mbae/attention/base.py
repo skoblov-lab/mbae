@@ -8,7 +8,7 @@ KTensor = t.NewType('KTensor', tf.Tensor)
 KTensorShape = t.Tuple[t.Optional[int], ...]
 
 
-class Block(t.Callable, metaclass=abc.ABCMeta):
+class Block(metaclass=abc.ABCMeta):
 
     def __init__(self, **kwargs):
         self._built = False
@@ -19,6 +19,10 @@ class Block(t.Callable, metaclass=abc.ABCMeta):
 
     def build(self, inputs, **kwargs):
         self._built = True
+
+    @abc.abstractmethod
+    def __call__(self, *args, **kwargs):
+        pass
 
 
 if __name__ == '__main__':

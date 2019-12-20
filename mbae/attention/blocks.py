@@ -9,7 +9,6 @@ from fn import F
 from mbae.attention.base import A, KTensor, KTensorShape, Block
 from mbae.attention.layers import LayerNormalisation, ActivityRegularizer, \
     ScaledDotProductAttention, BatchDot, SplitHeads, MergeHeads, GroupAttentions
-from mbae.attention.regularizers import AttentionFrobeniusNorm
 
 
 class DotProductAttention(Block):
@@ -101,9 +100,6 @@ class PositionFFN(Block):
 
     def __init__(self, activation: Activation, d_hid: int,
                  hidden_dropout: float = 0.0, convolutional=False, **kwargs):
-        """
-
-        """
         super().__init__(**kwargs)
         # TODO argchecks
         self.activation = activation

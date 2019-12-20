@@ -6,6 +6,7 @@ from keras.regularizers import Regularizer
 
 from mbae.attention.base import KTensor, KTensorShape
 from mbae.attention.ops import split_heads, merge_heads, group_attentions
+from mbae.attention.regularizers import std_gaussian_kl_divergence
 
 
 class LayerNormalisation(layers.Layer):
@@ -42,9 +43,64 @@ class LayerNormalisation(layers.Layer):
         return input_shape
 
 
-class StdGaussianVariationalDense(layers.Layer):
-    # TODO
-    pass
+class StdIsotropicGaussian(layers.Layer):
+    def __init__(self,
+                 units: int,
+                 kernel_initializer='glorot_uniform',
+                 bias_initializer='zeros',
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.units = units
+        self.kernel_initializer = kernel_initializer
+        self.bias_initializer = bias_initializer
+        # placeholders for weights
+        self.mean_kernel = None
+        self.mean_bias = None
+        self.std_kernel = None
+        self.std_bias = None
+
+    def build(self, input_shape: KTensorShape):
+        if len(input_shape) < 2:
+            raise ValueError
+        input_dim = input_shape[-1]
+        self.mean_kernel = self.add_weight(shape=(input_dim, self.units),
+                                           initializer=self.kernel_initializer,
+                                           name='mean_kernel')
+        self.mean_bias = self.add_weight(shape=(self.units,),
+                                         initializer=self.bias_initializer,
+                                         name='mean_bias')
+        self.std_kernel = self.add_weight(shape=(input_dim, self.units),
+                                          initializer=self.kernel_initializer,
+                                          name='std_kernel')
+        self.std_bias = self.add_weight(shape=(self.units,),
+                                        initializer=self.bias_initializer,
+                                        name='std_bias')
+        self.input_spec = layers.InputSpec(min_ndim=2, axes={-1: input_dim})
+        super().build(input_shape)
+
+    def call(self, inputs: KTensor, **kwargs) -> KTensor:
+        mean = K.bias_add(K.dot(inputs, self.mean_kernel),
+                          self.mean_bias,
+                          data_format='channels_last')
+        log_std = K.bias_add(K.dot(inputs, self.std_kernel),
+                             self.std_bias,
+                             data_format='channels_last')
+        # add kl divergence as activity regularizer
+        with K.name_scope('activity_regularizer'):
+            kld = std_gaussian_kl_divergence(mean, log_std)
+        self.add_loss([kld], inputs=[inputs])
+        # return a sample
+        return self.sample(mean, log_std)
+
+    @staticmethod
+    def sample(mean, log_std) -> KTensor:
+        shape = K.shape(mean)
+        epsilon = K.random_normal(shape, mean=0.0, stddev=1.0)
+        std = K.exp(log_std)
+        return mean + std * epsilon
+
+    def compute_output_shape(self, input_shape):
+        return (*input_shape[:-1], self.units)
 
 
 class ActivityRegularizer(layers.Layer):
