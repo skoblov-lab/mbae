@@ -5,25 +5,6 @@ from keras import backend as K
 from mbae.attention.base import A, KTensor
 
 
-def unpack_qkv(inputs: t.Union[A, t.List[A]]) -> t.List[A]:
-    """
-    :param inputs: if `len(inputs) == 1`, then `q = k = v = inputs[0]`;
-    if `len(inputs) == 2`, then `q = inputs[0]` and k = v = inputs[1]`;
-    if `len(inputs) == 3`, then `q, k, v = inputs`
-    :return:
-    """
-    inputs_ = inputs if isinstance(inputs, list) else [inputs]
-    nargs = len(inputs_)
-    if not 1 <= nargs <= 3:
-        raise ValueError('...')
-    q, k, v = (
-        inputs_ if nargs == 3 else
-        [inputs_[0], inputs_[1], inputs_[1]] if nargs == 2 else
-        inputs_ * 3
-    )
-    return [q, k, v]
-
-
 def split_heads(r: int, x: KTensor) -> KTensor:
     r"""
     Split sequential data along the last dimension (entries/embeddings)

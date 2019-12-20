@@ -4,7 +4,7 @@ from fn import F
 from keras import backend as K, layers
 
 from mbae.attention import util
-from mbae.attention._base import AttentionMasker, QKVAttention, \
+from mbae.attention.base import AttentionMasker, QKVAttention, \
     Block, KTensorShape
 from mbae.attention.layers import BatchDot, SplitHeads, MergeHeads, \
     GroupAttentions
