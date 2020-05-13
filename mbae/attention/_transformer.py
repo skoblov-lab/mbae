@@ -1,7 +1,7 @@
 import typing as t
 
 import tensorflow as tf
-from keras import backend as K, layers, initializers
+from tensorflow.keras import backend as K, layers, initializers
 from fn import F
 
 import mbae.attention._base

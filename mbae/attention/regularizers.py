@@ -1,6 +1,6 @@
 import typing as t
 
-from keras import backend as K, regularizers
+from tensorflow.keras import backend as K, regularizers
 
 from mbae.attention.base import KTensor
 from mbae.attention.ops import group_attentions
@@ -58,7 +58,8 @@ class AttentionFrobeniusNorm(regularizers.Regularizer):
             axes=[1, 2]
         )
         # restore the batch structure
-        return self.lambda_ * K.reshape(group_norms, [-1, l_q])
+        # return self.lambda_ * K.mean(K.reshape(group_norms, [-1, l_q]), axis=1)
+        return self.lambda_ * K.mean(K.reshape(group_norms, [-1, l_q]))
 
     def get_config(self):
         return {
@@ -67,12 +68,11 @@ class AttentionFrobeniusNorm(regularizers.Regularizer):
         }
 
 
-def std_gaussian_kl_divergence(mean, log_std):
+def std_gaussian_kld(mean, log_std):
     log_var = 2.0 * log_std
     var = K.exp(log_var)
-    return K.mean(
-        -0.5 * K.sum(1 + log_var - var - K.square(mean), axis=1), axis=-1
-    )
+    # return -0.5 * K.sum(1 + log_var - var - K.square(mean), axis=1)
+    return -0.5 * (1 + log_var - var - K.square(mean))
 
 
 def frobenius_norm(x: KTensor, axes: t.List[int] = None, eps=K.epsilon()):

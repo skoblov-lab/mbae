@@ -1,12 +1,12 @@
 import typing as t
 import operator as op
 
-from keras import layers, backend as K, initializers
-from keras.regularizers import Regularizer
+from tensorflow.keras import layers, backend as K, initializers
+from tensorflow.keras.regularizers import Regularizer
 
 from mbae.attention.base import KTensor, KTensorShape
 from mbae.attention.ops import split_heads, merge_heads, group_attentions
-from mbae.attention.regularizers import std_gaussian_kl_divergence
+from mbae.attention.regularizers import std_gaussian_kld
 
 
 class LayerNormalisation(layers.Layer):
@@ -44,13 +44,17 @@ class LayerNormalisation(layers.Layer):
 
 
 class StdIsotropicGaussian(layers.Layer):
+    # TODO docs
     def __init__(self,
                  units: int,
+                 lambda_: float = 1.0,
                  kernel_initializer='glorot_uniform',
                  bias_initializer='zeros',
                  **kwargs):
+        # TODO check arguments
         super().__init__(**kwargs)
         self.units = units
+        self.lambda_ = lambda_
         self.kernel_initializer = kernel_initializer
         self.bias_initializer = bias_initializer
         # placeholders for weights
@@ -86,9 +90,10 @@ class StdIsotropicGaussian(layers.Layer):
                              self.std_bias,
                              data_format='channels_last')
         # add kl divergence as activity regularizer
-        with K.name_scope('activity_regularizer'):
-            kld = std_gaussian_kl_divergence(mean, log_std)
-        self.add_loss([kld], inputs=[inputs])
+        if self.lambda_:
+            with K.name_scope('activity_regularizer'):
+                kld = K.mean(std_gaussian_kld(mean, log_std), axis=None)
+            self.add_loss([self.lambda_ * kld], inputs=[inputs])
         # return a sample
         return self.sample(mean, log_std)
 

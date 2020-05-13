@@ -1,9 +1,9 @@
 import typing as t
 import operator as op
 
-from keras import backend as K
-from keras.layers import Activation, Conv1D, Dense, Dropout, Lambda
-from keras.regularizers import Regularizer
+from tensorflow.keras import backend as K
+from tensorflow.keras.layers import Activation, Conv1D, Dense, Dropout, Lambda
+from tensorflow.keras.regularizers import Regularizer
 from fn import F
 
 from mbae.attention.base import A, KTensor, KTensorShape, Block
