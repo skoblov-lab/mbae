@@ -57,7 +57,7 @@ class LayerNormalisation(layers.Layer):
         return config
 
 
-class ScaledDotProductAttention(layers.Layer):
+class MultiHeadAttention(layers.Layer):
     """
     Implementing a general purpose multi-head query-key-value scaled dot-product
     attention stack from "Attention is All You Need"
@@ -67,15 +67,16 @@ class ScaledDotProductAttention(layers.Layer):
     def __init__(self, r: int, dropout: float, **kwargs):
         """
         :param r: the number of attention heads; this number should be a factor
-        of embedding size; when r == 1, the layer has no trainable parameters
-        and behaves as a regular single-head scaled dot-product attention stack
+        of model dimensionality (embedding size); when r == 1, the layer has no
+        trainable parameters and behaves as a regular single-head scaled
+        dot-product attention stack
         :param dropout: applies dropout to attention weights
         :param kwargs: Keras-specific layer arguments
         """
         super().__init__(**kwargs)
         if not (isinstance(r, int) and r > 0):
             raise ValueError('r must be a positive integer')
-        self.r = r
+        self._r = r
         if not (isinstance(dropout, float) and 0 <= dropout < 1):
             raise ValueError('dropout must be a float in [0, 1)')
         self.dropout = dropout
@@ -84,6 +85,14 @@ class ScaledDotProductAttention(layers.Layer):
         self.k_map = None
         self.v_map = None
         self.output_map = None
+
+    @property
+    def r(self) -> int:
+        """
+        The number of attention heads
+        :return:
+        """
+        return self._r
 
     @property
     def multihead(self) -> bool:
@@ -95,33 +104,42 @@ class ScaledDotProductAttention(layers.Layer):
         tuples: one for Queries and the other one for Keys (and Values).
         :return:
         """
-        q, k, _ = unpack_qkv(input_shape)
-        _, l_q, d_q = q
-        _, l_k, d_k = k  # k == v
-        if {d_q, d_k} != {d_q}:
-            # TODO message
-            raise ValueError
-        d = d_q
-        if d % self.r:
-            # TODO message
-            raise ValueError
+        if isinstance(input_shape, list) and len(input_shape) != 2:
+            raise ValueError('...')
+        q, k = input_shape if isinstance(input_shape, list) else [input_shape]*2
+        d_q = q[-1]
+        d_k = k[-1]
+        if d_q != d_k:
+            raise ValueError(
+                f'Different Query ({d_q}) and Key/Value ({d_k}) model '
+                f'dimensionality'
+            )
         if self.multihead:
+            d = d_q
+            if d % self.r:
+                raise ValueError(
+                    f'Model dimensionality {d} is not divisible by the number '
+                    f'of attention heads {self.r}'
+                )
             self.q_map = self.add_weight(
                 name='q_map', shape=(d, d),
-                initializer='glorot_uniform', trainable=True)
+                initializer='glorot_uniform', trainable=True
+            )
             self.k_map = self.add_weight(
                 name='k_map', shape=(d, d),
-                initializer='glorot_uniform', trainable=True)
+                initializer='glorot_uniform', trainable=True
+            )
             self.v_map = self.add_weight(
                 name='v_map', shape=(d, d),
-                initializer='glorot_uniform', trainable=True)
+                initializer='glorot_uniform', trainable=True
+            )
             self.output_map = self.add_weight(
                 name='output_map', shape=(d, d),
-                initializer='glorot_uniform', trainable=True)
+                initializer='glorot_uniform', trainable=True
+            )
         return super().build(input_shape)
 
     def attention(self, q, k, v, training=None) -> KTensor:
-        # TODO dropout
         ndim = K.cast(K.shape(q)[-1], dtype=K.floatx())
         product = K.batch_dot(q, k, axes=(2, 2))
         weights = K.softmax(product / K.sqrt(ndim))
@@ -135,8 +153,10 @@ class ScaledDotProductAttention(layers.Layer):
         :param kwargs:
         :return:
         """
-        # technically V is the same thing as K
-        q, k, v = unpack_qkv(inputs)
+        if isinstance(inputs, list) and len(inputs) != 2:
+            raise ValueError('...')
+        q, k = inputs if isinstance(inputs, list) else [inputs]*2
+        v = k
         training = kwargs.get('training')
         if self.multihead:
             # apply linear transformations to Q, K and V and split heads
@@ -154,6 +174,38 @@ class ScaledDotProductAttention(layers.Layer):
         config['r'] = self.r
         config['dropout'] = self.dropout
         return config
+
+
+class TargetMultiHeadAttention(MultiHeadAttention):
+    """
+    A very lazy implementation of multi-head Target attention from
+    "Hierarchical Convolutional Attention Networks for Text Classification"
+    (https://dx.doi.org/10.18653/v1/w18-3002), albeit without convolutional
+    bits. Basically, this is the same as regular multi-head attention with
+    trainable weights for Query (1, d_model).
+    """
+
+    def __init__(self, r: int, dropout: float, **kwargs):
+        super().__init__(r, dropout, **kwargs)
+        # placeholder for query parameters
+        self.query = None
+
+    def build(self, input_shape: KTensorShape):
+        d_model = input_shape[-1]
+        self.query = self.add_weight(
+            name='query', shape=(1, d_model),
+            initializer='glorot_uniform', trainable=True
+        )
+        return super().build(input_shape)
+
+    def call(self, inputs: KTensor, **kwargs):
+        # this is a very lazy (and inefficient) way of creating a query of shape
+        # (batch_size, 1, d_model) with d_model trainable weights:
+        # (1) create a tensor of ones with shape (batch_size, 1, 1)
+        # (2) multiply it by the weights matrix of shape (1, d_model)
+        ones = K.ones_like(inputs)[:, 0, 0]
+        query = K.dot(ones[:, None, None], self.query)
+        return super().call([query, inputs])
 
 
 class PositionFFN(layers.Layer):
@@ -193,22 +245,26 @@ class PositionFFN(layers.Layer):
             name='w1',
             shape=(d_input, self.d_hidden),
             initializer='glorot_uniform',
-            trainable=True)
+            trainable=True
+        )
         self.b1 = self.add_weight(
             name='b1',
             shape=(self.d_hidden,),
             initializer='zeros',
-            trainable=True)
+            trainable=True
+        )
         self.w2 = self.add_weight(
             name='w2',
             shape=(self.d_hidden, d_input),
             initializer='glorot_uniform',
-            trainable=True)
+            trainable=True
+        )
         self.b2 = self.add_weight(
             name='b2',
             shape=(d_input,),
             initializer='zeros',
-            trainable=True)
+            trainable=True
+        )
         return super().build(input_shape)
 
     def call(self, inputs: KTensor, **kwargs) -> KTensor:
@@ -290,28 +346,10 @@ class StdIsotropicGaussian(layers.Layer):
         return (*input_shape[:-1], self.units)
 
 
-def unpack_qkv(inputs: t.Union[A, t.List[A]]) -> t.List[A]:
-    """
-    Unpack Queries, Keys and Values
-    :param inputs: if `len(inputs) == 1`, then `q = k = v = inputs[0]`;
-    if `len(inputs) == 2`, then `q = inputs[0]` and k = v = inputs[1]`;
-    :return:
-    """
-    inputs_ = inputs if isinstance(inputs, list) else [inputs]
-    nargs = len(inputs_)
-    if not 1 <= nargs <= 2:
-        raise ValueError('...')
-    q, k, v = (
-        [inputs_[0], inputs_[1], inputs_[1]] if nargs == 2 else
-        inputs_ * 3
-    )
-    return [q, k, v]
-
-
 get_custom_objects().update({
     'LayerNormalisation': LayerNormalisation,
     'StdIsotropicGaussian': StdIsotropicGaussian,
-    'ScaledDotProductAttention': ScaledDotProductAttention,
+    'ScaledDotProductAttention': MultiHeadAttention,
     'PositionFFN': PositionFFN
 })
 
