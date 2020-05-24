@@ -8,7 +8,7 @@ from tensorflow.keras.utils import get_custom_objects
 
 from mbae.model.base import KTensor, KTensorShape
 from mbae.model.ops import split_heads, merge_heads, apply_dropout
-from mbae.model.regularizers import std_gaussian_kld
+from mbae.model.regularisers import std_gaussian_kld
 
 
 A = t.TypeVar('A')
@@ -162,13 +162,17 @@ class PositionFFN(layers.Layer):
     (https://arxiv.org/abs/1706.03762).
     """
 
-    def __init__(self, d_hidden: int, activation: t.Callable, **kwargs):
+    def __init__(self, d_hidden: int, activation: t.Union[str, t.Callable],
+                 **kwargs):
         """
         :param d_hidden: size of the hidden layer
-        :param activation: activation function applied to the hidden layer.
+        :param activation: activation function applied to the hidden layer;
+        you can pass it as a string or as a Callable; in case you are using
+        a custom activation function, don't forget to add it to
+        `keras.utils.get_custom_objects()`.
         :param kwargs: Keras-specific layer arguments.
         """
-        self.activation = activation
+        self.activation = activations.get(activation)
         self.d_hidden = d_hidden
         # placeholders for layer parameters
         self.w1 = None
