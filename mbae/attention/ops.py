@@ -1,6 +1,7 @@
 import typing as t
 
-from keras import backend as K
+# noinspection PyPep8Naming
+from tensorflow.keras import backend as K
 
 from mbae.attention.base import A, KTensor
 
@@ -12,28 +13,26 @@ def split_heads(r: int, x: KTensor) -> KTensor:
     Given $r \in \mathbb{N}$ and a tensor $X$ of shape $b \times l \times d$,
     where $b$ – batch size, $l$ – the number of entries in a sequences, $d$ is
     entry length (embedding dimensions) such that $d \bmod r = 0$:
-    1. Calculate subspace size ${d}_{r} = d \bmod r$;
+    1. Calculate subspace size $d_r = d \bmod r$;
     2. Add a new dimension along the entry (embedding) dimension such that
     each entry (embedding) vector is replaced by an $r \times ${d}_{r}$
     matrix: the resulting tensor will have shape [b, l, r, d_r]. Permute
-    dimensions from $[b, l, r, {d}_{r}]$ to $[r, b, l, {d}_{r}]$. In other
-    words, we end up with $r$ consecutive views" (entry/embedding splits) of the
-    original batch. Each "view" retains the structure of the original
+    dimensions from $[b, l, r, d_r]$ to $[r, b, l, d_r]$. In other
+    words, we end up with $r$ consecutive views (entry/embedding splits) of the
+    original batch. Each view retains the structure of the original
     batch.
     4. Flatten the output along the 0-axis. The output will be
-    $[r \times b, l, {d}_{r}]$
+    $[r \times b, l, d_r]$
     :param r: the number of heads
     :param x: a tensor of shape
     """
-    shape_x = K.shape(x)
-    b, l, d = shape_x[0], shape_x[1], shape_x[2]
+    b, l, d = K.int_shape(x)
     d_r = d // r
     # split each entry of shape d into r splits of shape d_r
     splits = K.reshape(x, [-1, l, r, d_r])
     # permute to [r, b, l, d_r]
     head_batches = K.permute_dimensions(splits, [2, 0, 1, 3])
-    # drop the r-dimension, i.e.
-    # [r, b, l, d_r] -> [r*b, l, d_r]
+    # drop the r-dimension: [r, b, l, d_r] -> [r*b, l, d_r]
     return K.reshape(head_batches, [-1, l, d_r])
 
 
@@ -45,8 +44,7 @@ def merge_heads(r: int, x: KTensor) -> KTensor:
     :param x: a tensort of shape $[r \times b, l, {d}_{r}]$
     :return: a tensor of shape $[b, l, {d}_{r}]$
     """
-    shape_x = K.shape(x)
-    rb, l, d_r = shape_x[0], shape_x[1], shape_x[2]
+    rb, l, d_r = K.int_shape(x)
     # split the rb dimension into r and b axes, creating
     # a tensor of shape [r, b, l, d_r]
     head_batches = K.reshape(x, [r, -1, l, d_r])
@@ -74,6 +72,22 @@ def group_attentions(r: int, attention_split: KTensor) -> KTensor:
     heads = K.reshape(attention_split, [r, -1, l_q, l_k])
     # group attention vectors by Q-sequence entries
     return K.permute_dimensions(heads, [1, 2, 0, 3])
+
+
+def apply_dropout(p: float, x: KTensor, training=None):
+    """
+    :param p: dropout probability
+    :param x: target tensor
+    :param training: switch dropout off when not in training mode
+    :return:
+    """
+    if not (isinstance(p, float) and 0 <= p < 1):
+        raise ValueError('dropout probability must be a float in [0, 1)')
+
+    def x_prime():
+        return K.dropout(x, p)
+
+    return K.in_train_phase(x_prime, x, training) if p else x
 
 
 if __name__ == '__main__':
