@@ -6,9 +6,9 @@ from tensorflow.keras import backend as K
 from tensorflow.keras import layers, initializers, activations
 from tensorflow.keras.utils import get_custom_objects
 
-from mbae.attention.base import KTensor, KTensorShape
-from mbae.attention.ops import split_heads, merge_heads, apply_dropout
-from mbae.attention.regularizers import std_gaussian_kld
+from mbae.model.base import KTensor, KTensorShape
+from mbae.model.ops import split_heads, merge_heads, apply_dropout
+from mbae.model.regularizers import std_gaussian_kld
 
 
 A = t.TypeVar('A')

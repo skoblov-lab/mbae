@@ -1,18 +1,17 @@
-import typing as t
 import operator as op
+import typing as t
 
-from tensorflow.keras import backend as K
-from tensorflow.keras.layers import Activation, Conv1D, Dense, Dropout, Lambda
-from tensorflow.keras.regularizers import Regularizer
 from fn import F
+from tensorflow.keras import backend as K
+from tensorflow.keras.layers import Activation, Conv1D, Dense, Dropout
+from tensorflow.keras.regularizers import Regularizer
 
-from mbae.attention.base import A, KTensor, KTensorShape, Block
-from mbae.attention.layers import LayerNormalisation, ActivityRegularizer, \
-    ScaledDotProductAttention, BatchDot, SplitHeads, MergeHeads, GroupAttentions
+from mbae.model.base import A, KTensor, Block
+from mbae.model.layers import \
+    _ScaledDotProductAttention, BatchDot, SplitHeads, MergeHeads, GroupAttentions
 
 
 class DotProductAttention(Block):
-    # TODO masking
 
     def __init__(self,
                  r: int,
@@ -20,14 +19,13 @@ class DotProductAttention(Block):
                  attention_regularizer: Regularizer = None,
                  **kwargs):
         # TODO checks
-        # TODO names
         super().__init__(**kwargs)
         self.r = r
         self.attention_dropout = (
             Dropout(attention_dropout) if attention_dropout else identity
         )
         self.attention_regularizer = (
-            ActivityRegularizer(attention_regularizer)
+            ActivityRegulariser(attention_regularizer)
             if attention_regularizer and self.multi_head else
             identity
         )
@@ -86,7 +84,7 @@ class DotProductAttention(Block):
         # calculate attention weights, apply attention activity 
         # regularisation and dropout
         weights = self.attention_regularizer(
-            ScaledDotProductAttention()([q_split, k_split])
+            _ScaledDotProductAttention()([q_split, k_split])
         )
         weights_dropped = self.attention_dropout(weights)
         # apply weights to V splits, concatenate attention heads and

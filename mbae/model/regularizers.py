@@ -1,9 +1,11 @@
 import typing as t
 
+# noinspection PyPep8Naming
 from tensorflow.keras import backend as K, regularizers
+from tensorflow.keras.utils import get_custom_objects
 
-from mbae.attention.base import KTensor
-from mbae.attention.ops import group_attentions
+from mbae.model.base import KTensor
+from mbae.model.ops import group_attentions
 
 
 class AttentionFrobeniusNorm(regularizers.Regularizer):
@@ -98,6 +100,10 @@ def kl_loss(mean, log_stddev):
         axis=-1
     )
 
+
+get_custom_objects().update({
+    'AttentionFrobeniusNorm': AttentionFrobeniusNorm
+})
 
 if __name__ == '__main__':
     raise RuntimeError
