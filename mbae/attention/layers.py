@@ -1,12 +1,13 @@
 import typing as t
 import operator as op
 
-from tensorflow.keras import layers, backend as K, initializers
+# noinspection PyPep8Naming
+from tensorflow.keras import backend as K
+from tensorflow.keras import layers, initializers, activations
 from tensorflow.keras.utils import get_custom_objects
 
 from mbae.attention.base import KTensor, KTensorShape
-from mbae.attention.ops import split_heads, merge_heads, group_attentions, \
-    apply_dropout
+from mbae.attention.ops import split_heads, merge_heads, apply_dropout
 from mbae.attention.regularizers import std_gaussian_kld
 
 
@@ -60,7 +61,7 @@ class ScaledDotProductAttention(layers.Layer):
     """
     Implementing a general purpose multi-head query-key-value scaled dot-product
     attention stack from "Attention is All You Need"
-    (https://arxiv.org/abs/1706.03762)
+    (https://arxiv.org/abs/1706.03762). The layer does not implement masking.
     """
 
     def __init__(self, r: int, dropout: float, **kwargs):
@@ -69,7 +70,7 @@ class ScaledDotProductAttention(layers.Layer):
         of embedding size; when r == 1, the layer has no trainable parameters
         and behaves as a regular single-head scaled dot-product attention stack
         :param dropout: applies dropout to attention weights
-        :param kwargs:
+        :param kwargs: Keras-specific layer arguments
         """
         super().__init__(**kwargs)
         if not (isinstance(r, int) and r > 0):
@@ -153,6 +154,70 @@ class ScaledDotProductAttention(layers.Layer):
         config['r'] = self.r
         config['dropout'] = self.dropout
         return config
+
+
+class PositionFFN(layers.Layer):
+    """
+    Position-wise feed-forward network from "Attention is All You Need"
+    (https://arxiv.org/abs/1706.03762).
+    """
+
+    def __init__(self, d_hidden: int, activation: t.Callable, **kwargs):
+        """
+        :param d_hidden: size of the hidden layer
+        :param activation: activation function applied to the hidden layer.
+        :param kwargs: Keras-specific layer arguments.
+        """
+        self.activation = activation
+        self.d_hidden = d_hidden
+        # placeholders for layer parameters
+        self.w1 = None
+        self.b1 = None
+        self.w2 = None
+        self.b2 = None
+        super().__init__(**kwargs)
+
+    def get_config(self) -> dict:
+        config = super().get_config()
+        config['d_hidden'] = self.d_hidden
+        config['activation'] = activations.serialize(self.activation)
+        return config
+
+    def build(self, input_shape: KTensorShape):
+        d_input = input_shape[-1]
+        self.w1 = self.add_weight(
+            name='w1',
+            shape=(d_input, self.d_hidden),
+            initializer='glorot_uniform',
+            trainable=True)
+        self.b1 = self.add_weight(
+            name='b1',
+            shape=(self.d_hidden,),
+            initializer='zeros',
+            trainable=True)
+        self.w2 = self.add_weight(
+            name='w2',
+            shape=(self.d_hidden, d_input),
+            initializer='glorot_uniform',
+            trainable=True)
+        self.b2 = self.add_weight(
+            name='b2',
+            shape=(d_input,),
+            initializer='zeros',
+            trainable=True)
+        return super().build(input_shape)
+
+    def call(self, inputs: KTensor, **kwargs) -> KTensor:
+        hidden = K.bias_add(
+            K.dot(inputs, self.w1),
+            self.b1,
+            data_format='channels_last'
+        )
+        return K.bias_add(
+            K.dot(self.activation(hidden), self.w2),
+            self.b2,
+            data_format='channels_last'
+        )
 
 
 class StdIsotropicGaussian(layers.Layer):
@@ -243,6 +308,7 @@ get_custom_objects().update({
     'LayerNormalisation': LayerNormalisation,
     'StdIsotropicGaussian': StdIsotropicGaussian,
     'ScaledDotProductAttention': ScaledDotProductAttention,
+    'PositionFFN': PositionFFN
 })
 
 
