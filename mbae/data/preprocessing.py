@@ -1,12 +1,12 @@
 import copy
 import operator as op
+import typing as t
 from itertools import chain, count
-from typing import Mapping, Iterable, Sequence, Optional, Tuple, List, TypeVar
 
 import numpy as np
 from fn import F
 
-T = TypeVar('T')
+T = t.TypeVar('T')
 
 
 homogenous = F(map) >> set >> len >> F(op.contains, [0, 1])
@@ -21,7 +21,7 @@ class SequenceEncoder:
     """
     Create a callable that encodes text as an integer array
     """
-    def __init__(self, alphabet: Iterable[str]):
+    def __init__(self, alphabet: t.Iterable[str]):
         unique = sorted(set(chain.from_iterable(alphabet)))
         self._mapping = dict(
             (val, key) for key, val in enumerate(unique, 1)
@@ -33,7 +33,7 @@ class SequenceEncoder:
         return np.fromiter(encoded, dtype, len(sequence))
 
     @property
-    def mapping(self) -> Mapping[str, int]:
+    def mapping(self) -> t.Mapping[str, int]:
         return copy.deepcopy(self._mapping)
 
     @property
@@ -41,7 +41,7 @@ class SequenceEncoder:
         return self._oov
 
 
-def maxshape(arrays: Sequence[np.ndarray]) -> List[int]:
+def maxshape(arrays: t.Sequence[np.ndarray]) -> t.List[int]:
     """
     :param arrays: a nonempty sequence of arrays; the sequence must be
     homogeneous with respect to dimensionality.
@@ -55,8 +55,8 @@ def maxshape(arrays: Sequence[np.ndarray]) -> List[int]:
     return list(np.array([array.shape for array in arrays]).max(axis=0))
 
 
-def stack(arrays: Sequence[np.ndarray], shape: Optional[Sequence[int]], dtype,
-          filler=0, trim=False) -> Tuple[np.ndarray, np.ndarray]:
+def stack(arrays: t.Sequence[np.ndarray], shape: t.Optional[t.Sequence[int]],
+          dtype, filler=0, trim=False) -> t.Tuple[np.ndarray, np.ndarray]:
     """
     Stack N-dimensional arrays with variable sizes across dimensions.
     :param arrays: a nonempty sequence of arrays; the sequence must be
@@ -91,11 +91,11 @@ def stack(arrays: Sequence[np.ndarray], shape: Optional[Sequence[int]], dtype,
     ...     for arr, s, m in zip(arrays, stacked, masks))
     True
     """
-    def slices(limits: Tuple[int], array: np.ndarray) -> List[slice]:
+    def slices(limits: t.Tuple[int], array: np.ndarray) -> t.List[slice]:
         stops = [min(limit, size) for limit, size in zip(limits, array.shape)]
         return [slice(0, stop) for stop in stops]
 
-    if not isinstance(arrays, Sequence):
+    if not isinstance(arrays, t.Sequence):
         raise ValueError('`arrays` must be a Sequence object')
     ndim = arrays[0].ndim
     if shape is not None and len(shape) != ndim:
