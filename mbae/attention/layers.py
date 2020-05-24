@@ -89,6 +89,11 @@ class ScaledDotProductAttention(layers.Layer):
         return self.r > 1
 
     def build(self, input_shape: t.Union[KTensorShape, t.List[KTensorShape]]):
+        """
+        :param input_shape: either a single shape tuple or a list of two shape
+        tuples: one for Queries and the other one for Keys (and Values).
+        :return:
+        """
         q, k, _ = unpack_qkv(input_shape)
         _, l_q, d_q = q
         _, l_k, d_k = k  # k == v
@@ -123,6 +128,12 @@ class ScaledDotProductAttention(layers.Layer):
         return K.batch_dot(weights_dropout, v)
 
     def call(self, inputs: t.Union[KTensor, t.List[KTensor]], **kwargs):
+        """
+        :param inputs: either a single Keras tensor or a list of two Keras
+        tensors: one for Queries and the other one for Keys (and Values).
+        :param kwargs:
+        :return:
+        """
         # technically V is the same thing as K
         q, k, v = unpack_qkv(inputs)
         training = kwargs.get('training')
@@ -142,113 +153,6 @@ class ScaledDotProductAttention(layers.Layer):
         config['r'] = self.r
         config['dropout'] = self.dropout
         return config
-
-
-class BatchDot(layers.Layer):
-    """
-    A wrapper around keras.backend.batch_dot
-    """
-
-    def __init__(self, axes: t.Optional[t.Union[int, t.Tuple[int, int]]],
-                 **kwargs):
-        super().__init__(**kwargs)
-        self.axes = axes
-
-    def call(self, inputs: t.List[KTensor], **kwargs) -> KTensor:
-        a, b = inputs
-        return K.batch_dot(a, b, axes=self.axes)
-
-    def compute_output_shape(self, input_shape: KTensorShape) -> KTensorShape:
-        x_shape, y_shape = input_shape
-        x_ndim, y_ndim = map(len, input_shape)
-        if x_ndim < 2 or y_ndim < 2:
-            raise ValueError(
-                f'Can not do batch_dot on inputs with rank < 2. Received inputs '
-                f'with shapes {x_shape} and {y_shape}.'
-            )
-        x_batch = x_shape[0]
-        y_batch = y_shape[0]
-        if not (x_batch is None or y_batch is None) and x_batch != y_batch:
-            raise ValueError(
-                f'Can not do batch_dot on inputs with different batch sizes. '
-                f'Received inputs with shapes {x_shape} and {y_shape}.'
-            )
-        # resolve different `axes` cases
-        axes = (
-            [self.axes, self.axes] if isinstance(self.axes, int) else
-            list(self.axes) if self.axes is not None else
-            [x_ndim - 1, y_ndim - 1] if y_ndim == 2 else
-            [x_ndim - 1, y_ndim - 2]
-        )
-        # make sure all axes are either None or integers
-        # TODO rewrite this message and condition
-        if any([isinstance(axis, (list, tuple)) for axis in axes]):
-            raise ValueError(
-                f'Multiple target dimensions are not supported. '
-                f'Expected: None, int, (int, int). Received: {axes}.'
-            )
-        # resolve negative indices
-        axes_noneg = [
-            axes[0] if axes[0] >= 0 else axes[0] + x_ndim,
-            axes[1] if axes[1] >= 0 else axes[1] + y_ndim
-        ]
-        # make sure we are not multiplying along the batch axis
-        if 0 in axes:
-            raise ValueError(
-                'Can not perform batch_dot over axis 0. If your inputs are not '
-                'batched, add a dummy batch dimension to your inputs using '
-                'K.expand_dims(x, 0)'
-            )
-        # use a dummy Dot layer to calculate output shape
-        dot = layers.Dot(axes_noneg)
-        return dot.compute_output_shape(input_shape)
-
-
-class SplitHeads(layers.Layer):
-    # TODO add docs and argument checks
-    def __init__(self, r: int, **kwargs):
-        super().__init__(**kwargs)
-        self.r = r
-
-    def call(self, inputs: KTensor, **kwargs) -> KTensor:
-        return split_heads(self.r, inputs)
-
-    def compute_output_shape(self, input_shape: KTensorShape) -> KTensorShape:
-        b, l, d = input_shape
-        d_r = d // self.r
-        rb = None if b is None else b * self.r
-        return rb, l, d_r
-
-
-class MergeHeads(layers.Layer):
-    # TODO add docs and argument checks
-    def __init__(self, r: int, **kwargs):
-        super().__init__(**kwargs)
-        self.r = r
-
-    def call(self, inputs: KTensor, **kwargs) -> KTensor:
-        return merge_heads(self.r, inputs)
-
-    def compute_output_shape(self, input_shape: KTensorShape) -> KTensorShape:
-        rb, l, d_r = input_shape
-        d = self.r * d_r
-        b = None if rb is None else rb // self.r
-        return b, l, d
-
-
-class GroupAttentions(layers.Layer):
-    # TODO add docs and argument checks
-    def __init__(self, r: int, **kwargs):
-        super().__init__(**kwargs)
-        self.r = r
-
-    def call(self, inputs, **kwargs) -> KTensor:
-        return group_attentions(self.r, inputs)
-
-    def compute_output_shape(self, input_shape: KTensorShape) -> KTensorShape:
-        rb, l_q, l_k = input_shape
-        b = None if rb is None else rb // self.r
-        return b, l_q, self.r, l_k
 
 
 class StdIsotropicGaussian(layers.Layer):
@@ -319,6 +223,7 @@ class StdIsotropicGaussian(layers.Layer):
 
 def unpack_qkv(inputs: t.Union[A, t.List[A]]) -> t.List[A]:
     """
+    Unpack Queries, Keys and Values
     :param inputs: if `len(inputs) == 1`, then `q = k = v = inputs[0]`;
     if `len(inputs) == 2`, then `q = inputs[0]` and k = v = inputs[1]`;
     :return:
@@ -338,10 +243,6 @@ get_custom_objects().update({
     'LayerNormalisation': LayerNormalisation,
     'StdIsotropicGaussian': StdIsotropicGaussian,
     'ScaledDotProductAttention': ScaledDotProductAttention,
-    'BatchDot': BatchDot,
-    'SplitHeads': SplitHeads,
-    'MergeHeads': MergeHeads,
-    'GroupAttentions': GroupAttentions
 })
 
 
