@@ -180,9 +180,9 @@ class TargetMultiHeadAttention(MultiHeadAttention):
     """
     A very lazy implementation of multi-head Target attention from
     "Hierarchical Convolutional Attention Networks for Text Classification"
-    (https://dx.doi.org/10.18653/v1/w18-3002), albeit without convolutional
-    bits. Basically, this is the same as regular multi-head attention with
-    trainable weights for Query (1, d_model).
+    (https://dx.doi.org/10.18653/v1/w18-3002). It is the same as regular
+    multi-head attention trainable, albeit with a trainable Query matrix of
+    shape (1, d_model).
     """
 
     def __init__(self, r: int, dropout: float, **kwargs):
@@ -203,6 +203,10 @@ class TargetMultiHeadAttention(MultiHeadAttention):
         # (batch_size, 1, d_model) with d_model trainable weights:
         # (1) create a tensor of ones with shape (batch_size, 1, 1)
         # (2) multiply it by the weights matrix of shape (1, d_model)
+        # `K.ones_like(inputs)` is here to capture batch-size; doing
+        # K.ones(K.shape(inputs)[0])[:, None, None] doesn't work, because
+        # this inadvertently creates a Graph tensor, which seems to be
+        # incompatible with @tf.function
         ones = K.ones_like(inputs)[:, 0, 0]
         query = K.dot(ones[:, None, None], self.query)
         return super().call([query, inputs])
@@ -348,9 +352,10 @@ class StdIsotropicGaussian(layers.Layer):
 
 get_custom_objects().update({
     'LayerNormalisation': LayerNormalisation,
-    'StdIsotropicGaussian': StdIsotropicGaussian,
-    'ScaledDotProductAttention': MultiHeadAttention,
-    'PositionFFN': PositionFFN
+    'MultiHeadAttention': MultiHeadAttention,
+    'TargetMultiHeadAttention': TargetMultiHeadAttention,
+    'PositionFFN': PositionFFN,
+    'StdIsotropicGaussian': StdIsotropicGaussian
 })
 
 
