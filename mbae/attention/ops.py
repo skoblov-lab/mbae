@@ -1,9 +1,10 @@
-import typing as t
+import math
 
 # noinspection PyPep8Naming
 from tensorflow.keras import backend as K
+from tensorflow.keras.utils import get_custom_objects
 
-from mbae.attention.base import A, KTensor
+from mbae.attention.base import KTensor
 
 
 def split_heads(r: int, x: KTensor) -> KTensor:
@@ -89,6 +90,19 @@ def apply_dropout(p: float, x: KTensor, training=None):
 
     return K.in_train_phase(x_prime, x, training) if p else x
 
+
+def gelu(x):
+    """
+    The activation from "Gaussian Error Linear Units (GELUs)"
+    (https://arxiv.org/pdf/1606.08415.pdf)
+    """
+    c = math.sqrt(2 / math.pi)
+    return 0.5 * x * (1 + K.tanh(c * (x + 0.044715 * K.pow(x, 3))))
+
+
+get_custom_objects().update({
+    'gelu': gelu
+})
 
 if __name__ == '__main__':
     raise RuntimeError
