@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 # noinspection PyPep8Naming
 from tensorflow.keras import backend as K
 from tensorflow.keras.utils import get_custom_objects
@@ -94,10 +95,38 @@ def apply_dropout(p: float, x: KTensor, training=None):
 def gelu(x):
     """
     The activation from "Gaussian Error Linear Units (GELUs)"
-    (https://arxiv.org/pdf/1606.08415.pdf)
+    (https://arxiv.org/pdf/1606.08415.pdf).
+    The implementation was taken from https://github.com/kpot/keras-transformer
     """
     c = math.sqrt(2 / math.pi)
     return 0.5 * x * (1 + K.tanh(c * (x + 0.044715 * K.pow(x, 3))))
+
+
+def positional_signal(hidden_size: int, length: int,
+                      min_timescale: float = 1.0, max_timescale: float = 1e4):
+    """
+    Helper function, constructing positional encodings as described in
+    "Attention is All You Need" (https://arxiv.org/abs/1706.03762)
+    The implementation was taken from https://github.com/kpot/keras-transformer
+    """
+
+    if hidden_size % 2 != 0:
+        raise ValueError(
+            f"The hidden dimension of the model must be divisible by 2."
+            f"Currently it is {hidden_size}")
+    position = K.arange(0, length, dtype=K.floatx())
+    num_timescales = hidden_size // 2
+    log_timescale_increment = K.constant(
+        (np.log(float(max_timescale) / float(min_timescale)) /
+         (num_timescales - 1)),
+        dtype=K.floatx())
+    inv_timescales = (
+            min_timescale *
+            K.exp(K.arange(num_timescales, dtype=K.floatx()) *
+                  -log_timescale_increment))
+    scaled_time = K.expand_dims(position, 1) * K.expand_dims(inv_timescales, 0)
+    signal = K.concatenate([K.sin(scaled_time), K.cos(scaled_time)], axis=1)
+    return K.expand_dims(signal, axis=0)
 
 
 get_custom_objects().update({
