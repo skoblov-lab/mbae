@@ -112,7 +112,7 @@ def positional_signal(hidden_size: int, length: int,
 
     if hidden_size % 2 != 0:
         raise ValueError(
-            f"The hidden dimension of the model must be divisible by 2."
+            f"The hidden dimension of the model must be divisible by 2. "
             f"Currently it is {hidden_size}")
     position = K.arange(0, length, dtype=K.floatx())
     num_timescales = hidden_size // 2
@@ -129,9 +129,21 @@ def positional_signal(hidden_size: int, length: int,
     return K.expand_dims(signal, axis=0)
 
 
+def isotropic_gaussian_kld(mean, log_std):
+    r"""
+    KL divergence between a multivariate Gaussian with a diagonal covariance
+    matrix and a standard isotropic Gaussian.
+    KL = - 0.5 \sum{ 1 + \log{ \sigma^2 } - \sigma^2 - \mu^2 }
+    """
+    log_var = 2.0 * log_std
+    var = K.exp(log_var)
+    return -0.5 * K.sum(1 + log_var - var - K.square(mean), axis=1)
+
+
 get_custom_objects().update({
     'gelu': gelu
 })
+
 
 if __name__ == '__main__':
     raise RuntimeError

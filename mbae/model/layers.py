@@ -6,9 +6,7 @@ from tensorflow.keras import layers, initializers, activations
 from tensorflow.keras.utils import get_custom_objects
 
 from mbae.model.base import KTensor, KTensorShape
-from mbae.model.ops import split_heads, merge_heads, apply_dropout, \
-    positional_signal
-from mbae.model.regularisers import std_gaussian_kld
+from mbae.model import ops
 
 A = t.TypeVar('A')
 
@@ -142,7 +140,7 @@ class MultiHeadAttention(layers.Layer):
         ndim = K.cast(K.shape(q)[-1], dtype=K.floatx())
         product = K.batch_dot(q, k, axes=(2, 2))
         weights = K.softmax(product / K.sqrt(ndim))
-        weights_dropout = apply_dropout(self.dropout, weights, training)
+        weights_dropout = ops.apply_dropout(self.dropout, weights, training)
         return K.batch_dot(weights_dropout, v)
 
     def call(self, inputs: t.Union[KTensor, t.List[KTensor]], **kwargs):
@@ -159,13 +157,13 @@ class MultiHeadAttention(layers.Layer):
         training = kwargs.get('training')
         if self.multihead:
             # apply linear transformations to Q, K and V and split heads
-            q_split = split_heads(self.r, K.dot(q, self.q_map))
-            k_split = split_heads(self.r, K.dot(k, self.k_map))
-            v_split = split_heads(self.r, K.dot(v, self.v_map))
+            q_split = ops.split_heads(self.r, K.dot(q, self.q_map))
+            k_split = ops.split_heads(self.r, K.dot(k, self.k_map))
+            v_split = ops.split_heads(self.r, K.dot(v, self.v_map))
             # apply attention
             output_split = self.attention(q_split, k_split, v_split, training)
             # merge heads back together and apply a linear transformation
-            return K.dot(merge_heads(self.r, output_split), self.output_map)
+            return K.dot(ops.merge_heads(self.r, output_split), self.output_map)
         return self.attention(q, k, v, training)
 
     def get_config(self):
@@ -283,20 +281,77 @@ class PositionFFN(layers.Layer):
         )
 
 
+class FixedPositionalEncoding(layers.Layer):
+    """
+    Injects positional encodings described in "Attention is All You Need"
+    (https://arxiv.org/abs/1706.03762).
+    The implementation was taken from https://github.com/kpot/keras-transformer
+    """
+
+    def __init__(self, min_timescale: float = 1.0,
+                 max_timescale: float = 1.0e4, **kwargs):
+        self.min_timescale = min_timescale
+        self.max_timescale = max_timescale
+        self.signal = None
+        super().__init__(**kwargs)
+
+    def get_config(self):
+        config = super().get_config()
+        config['min_timescale'] = self.min_timescale
+        config['max_timescale'] = self.max_timescale
+        return config
+
+    def build(self, input_shape):
+        _, length, hidden_size = input_shape
+        self.signal = ops.positional_signal(
+            hidden_size, length, self.min_timescale, self.max_timescale
+        )
+        return super().build(input_shape)
+
+    def call(self, inputs, **kwargs):
+        return inputs + self.signal
+
+
+class TrainablePositionalEncoding(layers.Layer):
+    """
+    Represents trainable positional encodings mentioned in
+    "Attention is All You Need" (https://arxiv.org/abs/1706.03762)
+    """
+
+    # noinspection PyAttributeOutsideInit
+    def build(self, input_shape):
+        sequence_length, d_model = input_shape[-2:]
+        self.word_position_encoding = self.add_weight(
+            shape=(sequence_length, d_model),
+            initializer='uniform',
+            name='word_position_encoding',
+            trainable=True)
+        super().build(input_shape)
+
+    def call(self, inputs, **kwargs):
+        return inputs + self.word_position_encoding
+
+
 class StdIsotropicGaussian(layers.Layer):
-    # TODO docs
+    """
+    A variational Dense layer approximating a standard isotropic Gaussian
+    """
     def __init__(self,
                  units: int,
-                 lambda_: float = 1.0,
-                 kernel_initializer='glorot_uniform',
-                 bias_initializer='zeros',
+                 kernel_initializer: t.Union[str, t.Callable] = 'glorot_uniform',
+                 bias_initializer: t.Union[str, t.Callable] = 'zeros',
                  **kwargs):
+        """
+        :param units: the number of hidden units
+        :param kernel_initializer:
+        :param bias_initializer:
+        :param kwargs:
+        """
         # TODO check arguments
         super().__init__(**kwargs)
         self.units = units
-        self.lambda_ = lambda_
-        self.kernel_initializer = kernel_initializer
-        self.bias_initializer = bias_initializer
+        self.kernel_initializer = initializers.get(kernel_initializer)
+        self.bias_initializer = initializers.get(bias_initializer)
         # placeholders for weights
         self.mean_kernel = None
         self.mean_bias = None
@@ -330,10 +385,9 @@ class StdIsotropicGaussian(layers.Layer):
                              self.std_bias,
                              data_format='channels_last')
         # add kl divergence as activity regularizer
-        if self.lambda_:
-            with K.name_scope('activity_regularizer'):
-                kld = K.mean(std_gaussian_kld(mean, log_std), axis=None)
-            self.add_loss([self.lambda_ * kld], inputs=[inputs])
+        with K.name_scope('activity_regularizer'):
+            kld = K.mean(ops.isotropic_gaussian_kld(mean, log_std), axis=None)
+        self.add_loss([kld], inputs=[inputs])
         # return a sample
         return self.sample(mean, log_std)
 
@@ -344,60 +398,20 @@ class StdIsotropicGaussian(layers.Layer):
         std = K.exp(log_std)
         return mean + std * epsilon
 
+    def get_config(self) -> dict:
+        config = super().get_config()
+        config['units'] = self.units
+        config['kernel_initializer'] = initializers.serialize(
+            self.kernel_initializer
+        )
+        config['bias_initializer'] = initializers.serialize(
+            self.bias_initializer
+        )
+        return config
+
     def compute_output_shape(self, input_shape):
         # noinspection PyRedundantParentheses
         return (*input_shape[:-1], self.units)
-
-
-class FixedPositionalEncoding(layers.Layer):
-    """
-    Injects positional encodings described in "Attention is All You Need"
-    (https://arxiv.org/abs/1706.03762).
-    The implementation was taken from https://github.com/kpot/keras-transformer
-    """
-
-    def __init__(self, min_timescale: float = 1.0,
-                 max_timescale: float = 1.0e4, **kwargs):
-        self.min_timescale = min_timescale
-        self.max_timescale = max_timescale
-        self.signal = None
-        super().__init__(**kwargs)
-
-    def get_config(self):
-        config = super().get_config()
-        config['min_timescale'] = self.min_timescale
-        config['max_timescale'] = self.max_timescale
-        return config
-
-    def build(self, input_shape):
-        _, length, hidden_size = input_shape
-        self.signal = positional_signal(
-            hidden_size, length, self.min_timescale, self.max_timescale
-        )
-        return super().build(input_shape)
-
-    def call(self, inputs, **kwargs):
-        return inputs + self.signal
-
-
-class TrainablePositionalEncoding(layers.Layer):
-    """
-    Represents trainable positional encodings mentioned in
-    "Attention is All You Need" (https://arxiv.org/abs/1706.03762)
-    """
-
-    # noinspection PyAttributeOutsideInit
-    def build(self, input_shape):
-        sequence_length, d_model = input_shape[-2:]
-        self.word_position_encoding = self.add_weight(
-            shape=(sequence_length, d_model),
-            initializer='uniform',
-            name='word_position_encoding',
-            trainable=True)
-        super().build(input_shape)
-
-    def call(self, inputs, **kwargs):
-        return inputs + self.word_position_encoding
 
 
 get_custom_objects().update({
@@ -405,9 +419,9 @@ get_custom_objects().update({
     'MultiHeadAttention': MultiHeadAttention,
     'TargetMultiHeadAttention': TargetMultiHeadAttention,
     'PositionFFN': PositionFFN,
-    'StdIsotropicGaussian': StdIsotropicGaussian,
     'FixedPositionalEncoding': FixedPositionalEncoding,
-    'TrainablePositionalEncoding': TrainablePositionalEncoding
+    'TrainablePositionalEncoding': TrainablePositionalEncoding,
+    'StdIsotropicGaussian': StdIsotropicGaussian
 })
 
 

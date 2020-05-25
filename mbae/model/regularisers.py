@@ -60,7 +60,6 @@ class AttentionFrobeniusNorm(regularizers.Regularizer):
             axes=[1, 2]
         )
         # restore the batch structure
-        # return self.lambda_ * K.mean(K.reshape(group_norms, [-1, l_q]), axis=1)
         return self.lambda_ * K.mean(K.reshape(group_norms, [-1, l_q]))
 
     def get_config(self):
@@ -68,13 +67,6 @@ class AttentionFrobeniusNorm(regularizers.Regularizer):
             'r': self.r, 'alpha': self.alpha, 'lambda_': self.lambda_,
             'epsilon': self.epsilon
         }
-
-
-def std_gaussian_kld(mean, log_std):
-    log_var = 2.0 * log_std
-    var = K.exp(log_var)
-    # return -0.5 * K.sum(1 + log_var - var - K.square(mean), axis=1)
-    return -0.5 * (1 + log_var - var - K.square(mean))
 
 
 def frobenius_norm(x: KTensor, axes: t.List[int] = None, eps=K.epsilon()):
@@ -86,19 +78,6 @@ def frobenius_norm(x: KTensor, axes: t.List[int] = None, eps=K.epsilon()):
     :return:
     """
     return K.sqrt(K.sum(K.square(x), axis=axes) + eps)
-
-
-def kl_loss(mean, log_stddev):
-    """
-    Modified KL-divergence between a multivariate Gaussian with a diagonal
-    covariance matrix and a standard multivaraite Gaussian with a diagonal
-    covariance matrix. The actual KL divergence in this case is
-    -0.5 * sum(1 + 2*log(stddev) - stddev^2 - mean^2)
-    """
-    return K.mean(
-        -0.5 * K.sum(1 + log_stddev - K.exp(log_stddev) - K.square(mean), axis=1),
-        axis=-1
-    )
 
 
 get_custom_objects().update({
