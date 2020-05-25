@@ -405,7 +405,7 @@ get_custom_objects().update({
     'MultiHeadAttention': MultiHeadAttention,
     'TargetMultiHeadAttention': TargetMultiHeadAttention,
     'PositionFFN': PositionFFN,
-    'StdIsotropicGaussian': StdIsotropicGaussian
+    'StdIsotropicGaussian': StdIsotropicGaussian,
     'FixedPositionalEncoding': FixedPositionalEncoding,
     'TrainablePositionalEncoding': TrainablePositionalEncoding
 })
