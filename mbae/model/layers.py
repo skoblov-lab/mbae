@@ -1,5 +1,4 @@
 import typing as t
-import operator as op
 
 # noinspection PyPep8Naming
 from tensorflow.keras import backend as K
@@ -10,7 +9,6 @@ from mbae.model.base import KTensor, KTensorShape
 from mbae.model.ops import split_heads, merge_heads, apply_dropout, \
     positional_signal
 from mbae.model.regularisers import std_gaussian_kld
-
 
 A = t.TypeVar('A')
 
