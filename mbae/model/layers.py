@@ -349,7 +349,7 @@ class StdIsotropicGaussian(layers.Layer):
         return (*input_shape[:-1], self.units)
 
 
-class AddPositionalEncoding(layers.Layer):
+class FixedPositionalEncoding(layers.Layer):
     """
     Injects positional encodings described in "Attention is All You Need"
     (https://arxiv.org/abs/1706.03762).
@@ -380,48 +380,24 @@ class AddPositionalEncoding(layers.Layer):
         return inputs + self.signal
 
 
-class TransformerCoordinateEmbedding(layers.Layer):
+class TrainablePositionalEncoding(layers.Layer):
     """
-    Represents trainable positional embeddings for the Transformer model:
-    1. word position embeddings - one for each position in the sequence.
-    2. depth embeddings - one for each block of the model
-    Calling the layer with the Transformer's input will return a new input
-    with those embeddings added.
-    The implementation was taken from https://github.com/kpot/keras-transformer
+    Represents trainable positional encodings mentioned in
+    "Attention is All You Need" (https://arxiv.org/abs/1706.03762)
     """
-
-    def __init__(self, max_transformer_depth: int, **kwargs):
-        self.max_depth = max_transformer_depth
-        super().__init__(**kwargs)
-
-    def get_config(self):
-        config = super().get_config()
-        config['max_transformer_depth'] = self.max_depth
-        return config
 
     # noinspection PyAttributeOutsideInit
     def build(self, input_shape):
         sequence_length, d_model = input_shape[-2:]
-        self.word_position_embeddings = self.add_weight(
+        self.word_position_encoding = self.add_weight(
             shape=(sequence_length, d_model),
             initializer='uniform',
-            name='word_position_embeddings',
-            trainable=True)
-        self.depth_embeddings = self.add_weight(
-            shape=(self.max_depth, d_model),
-            initializer='uniform',
-            name='depth_position_embeddings',
+            name='word_position_encoding',
             trainable=True)
         super().build(input_shape)
 
-    def call(self, inputs, depth=None, **kwargs):
-        if depth is None:
-            raise ValueError("Please, provide current Transformer's step"
-                             "using 'step' keyword argument.")
-        result = inputs + self.word_position_embeddings
-        if depth is not None:
-            result = result + self.depth_embeddings[depth]
-        return result
+    def call(self, inputs, **kwargs):
+        return inputs + self.word_position_encoding
 
 
 get_custom_objects().update({
@@ -430,6 +406,8 @@ get_custom_objects().update({
     'TargetMultiHeadAttention': TargetMultiHeadAttention,
     'PositionFFN': PositionFFN,
     'StdIsotropicGaussian': StdIsotropicGaussian
+    'FixedPositionalEncoding': FixedPositionalEncoding,
+    'TrainablePositionalEncoding': TrainablePositionalEncoding
 })
 
 
