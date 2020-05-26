@@ -209,7 +209,7 @@ class TargetMultiHeadAttention(MultiHeadAttention):
         return super().call([query, inputs])
 
 
-class PositionFFN(layers.Layer):
+class PositionWiseFFN(layers.Layer):
     """
     Position-wise feed-forward network from "Attention is All You Need"
     (https://arxiv.org/abs/1706.03762).
@@ -318,6 +318,11 @@ class TrainablePositionalEncoding(layers.Layer):
     "Attention is All You Need" (https://arxiv.org/abs/1706.03762)
     """
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # placeholder for layer parameters
+        self.word_position_encoding = None
+
     # noinspection PyAttributeOutsideInit
     def build(self, input_shape):
         sequence_length, d_model = input_shape[-2:]
@@ -418,7 +423,7 @@ get_custom_objects().update({
     'LayerNormalisation': LayerNormalisation,
     'MultiHeadAttention': MultiHeadAttention,
     'TargetMultiHeadAttention': TargetMultiHeadAttention,
-    'PositionFFN': PositionFFN,
+    'PositionWiseFFN': PositionWiseFFN,
     'FixedPositionalEncoding': FixedPositionalEncoding,
     'TrainablePositionalEncoding': TrainablePositionalEncoding,
     'StdIsotropicGaussian': StdIsotropicGaussian

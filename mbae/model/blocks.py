@@ -4,7 +4,7 @@ from tensorflow.keras import layers
 
 from mbae.model.base import KTensor
 from mbae.model.layers import LayerNormalisation, MultiHeadAttention, \
-    PositionFFN
+    PositionWiseFFN
 
 
 def identity(x):
@@ -37,7 +37,7 @@ class SelfAttentionBlock:
             raise ValueError('`d_ffn` must be a positive integer')
         if not (isinstance(dropout_ffn, float) and 0 <= dropout_ffn < 1):
             raise ValueError('`dropout_ffn` must be a float in [0, 1)')
-        self.ffn = PositionFFN(d_ffn, activation)
+        self.ffn = PositionWiseFFN(d_ffn, activation)
         self.drop_ffn = layers.Dropout(dropout_ffn) if dropout_ffn else identity
         self.norm_ffn = LayerNormalisation()
 
