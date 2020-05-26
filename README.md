@@ -1,2 +1,3 @@
-# utils
-Different utility modules for Python projects
+# mbae - MHC Binding Affinity Estimator
+
+Canonically pronounced as British 'amber'.

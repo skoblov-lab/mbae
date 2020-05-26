@@ -5,6 +5,7 @@ import tensorflow as tf
 from mbae.model.base import KTensor
 
 
+# noinspection PyTypeChecker
 def binomial_negative_log_likelihood(n: int, k: KTensor, p: KTensor):
     """
     Binomial negative log-likelihood. This thing is supposed to be used as a
