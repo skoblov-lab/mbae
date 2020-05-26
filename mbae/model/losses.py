@@ -1,12 +1,16 @@
 import math
+import typing as t
 
 import tensorflow as tf
+from toolz import curry
 
 from mbae.model.base import KTensor
 
 
 # noinspection PyTypeChecker
-def binomial_negative_log_likelihood(n: int, k: KTensor, p: KTensor):
+@curry
+def binomial_negative_log_likelihood(n: t.Union[int, float], k: KTensor,
+                                     p: KTensor) -> KTensor:
     """
     Binomial negative log-likelihood. This thing is supposed to be used as a
     loss function in ordinal regression problems, where n represents the
@@ -29,6 +33,25 @@ def binomial_negative_log_likelihood(n: int, k: KTensor, p: KTensor):
         + n_minus_k * tf.math.log(1.0 - p)
     )
     return - log_likelihood
+
+
+# noinspection PyTypeChecker
+@curry
+def binomial_absolute_expectation_difference(n: t.Union[int, float], k: KTensor,
+                                             p: KTensor) -> KTensor:
+    """
+    The absolute difference between expected and observed number of successes.
+    This thing is supposed to be used as a performance metric in ordinal
+    regression problems alongside `binomial_negative_log_likelihood`
+    :param n: technically, the total number of trials; here it is the number of
+    ordinal levels - 1
+    :param k: technically, the number of successes; here it represents observed
+    (true) ordinal levels; the lowest level must be denoted by 0; a float Tensor
+    :param p: success probability; a float Tensor
+    :return:
+    """
+    expectation = p * float(n)
+    return tf.abs(k - expectation)
 
 
 if __name__ == '__main__':

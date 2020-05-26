@@ -41,6 +41,29 @@ class SequenceEncoder:
         return self._oov
 
 
+def expand_categories(categories: np.ndarray, dtype) -> np.ndarray:
+    """
+    Expand a numeric representation into a zero-padded array of ones. For
+    example, given `categories = np.array([2, 5, 6])` we will produce
+    ```
+    np.array([
+        [1, 1, 1, 0, 0, 0],
+        [1, 1, 1, 1, 1, 0],
+        [1, 1, 1, 1, 1, 1]
+    ])
+    ```
+    :param categories:
+    :param dtype:
+    :return:
+    """
+    ncat = categories.shape[0]
+    maxcat = categories.max()
+    expanded = np.zeros(maxcat*ncat, dtype=dtype).reshape((ncat, maxcat))
+    for i, j in enumerate(categories):
+        expanded[i, :j] = 1
+    return expanded
+
+
 def maxshape(arrays: t.Sequence[np.ndarray]) -> t.List[int]:
     """
     :param arrays: a nonempty sequence of arrays; the sequence must be
