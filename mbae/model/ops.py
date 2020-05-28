@@ -1,4 +1,5 @@
 import math
+import typing as t
 
 import numpy as np
 # noinspection PyPep8Naming
@@ -68,8 +69,7 @@ def group_attentions(r: int, attention_split: KTensor) -> KTensor:
     replaced by $[r, {l}_{k}]$ matrices of attention vectors (collected across $r$
     attention heads).
     """
-    att_shape = K.shape(attention_split)
-    rb, l_q, l_k = att_shape[0], att_shape[1], att_shape[2]
+    rb, l_q, l_k = K.int_shape(attention_split)
     # separate heads
     heads = K.reshape(attention_split, [r, -1, l_q, l_k])
     # group attention vectors by Q-sequence entries
@@ -138,6 +138,17 @@ def isotropic_gaussian_kld(mean, log_std):
     log_var = 2.0 * log_std
     var = K.exp(log_var)
     return -0.5 * K.sum(1 + log_var - var - K.square(mean), axis=1)
+
+
+def frobenius_norm(x: KTensor, axes: t.List[int] = None, eps=K.epsilon()):
+    """
+    The Frobenius (L2 matrix) norm.
+    :param x:
+    :param axes:
+    :param eps:
+    :return:
+    """
+    return K.sqrt(K.sum(K.square(x), axis=axes) + eps)
 
 
 get_custom_objects().update({

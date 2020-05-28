@@ -14,7 +14,8 @@ def identity(x):
 class SelfAttentionBlock:
 
     def __init__(self, r: int, d_ffn: int, activation: t.Union[str, t.Callable],
-                 dropout_softmax: float, dropout_att: float, dropout_ffn: float):
+                 dropout_softmax: float, dropout_att: float, dropout_ffn: float,
+                 regularise: bool = False):
         """
         :param r: the number of attention heads
         :param d_ffn: hidden layer size in the point-wise FFN stack
@@ -24,12 +25,14 @@ class SelfAttentionBlock:
         residual connection
         :param dropout_ffn: dropout applied to point-wise FFN output prior to
         its residual connection
+        :param regularise: apply attention regularisation; please, refer to
+        MultiHeadAttention's documentation for more details
         """
         if not (isinstance(r, int) and r > 0):
             raise ValueError('`r` must be a positive integer')
         if not (isinstance(dropout_att, float) and 0 <= dropout_att < 1):
             raise ValueError('`dropout_att` must be a float in [0, 1)')
-        self.attention = MultiHeadAttention(r, dropout_softmax)
+        self.attention = MultiHeadAttention(r, dropout_softmax, regularise)
         self.drop_att = layers.Dropout(dropout_att)
         self.norm_att = LayerNormalisation()
 

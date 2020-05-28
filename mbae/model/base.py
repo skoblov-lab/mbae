@@ -1,7 +1,7 @@
-import abc
 import typing as t
 
 import tensorflow as tf
+
 
 A = t.TypeVar('A')
 KTensor = t.NewType('KTensor', tf.Tensor)

@@ -1,5 +1,6 @@
 import typing as t
 
+import tensorflow as tf
 # noinspection PyPep8Naming
 from tensorflow.keras import backend as K
 from tensorflow.keras import layers, initializers, activations
@@ -58,16 +59,25 @@ class MultiHeadAttention(layers.Layer):
     """
     Implementing a general purpose multi-head query-key-value scaled dot-product
     attention stack from "Attention is All You Need"
-    (https://arxiv.org/abs/1706.03762). The layer does not implement masking.
+    (https://arxiv.org/abs/1706.03762 with Frobenius norm regularisation from
+    "A Structured Self-attentive Sentence Embedding"
+    (https://arxiv.org/abs/1703.03130).
+    The layer does not implement attention masking.
     """
 
-    def __init__(self, r: int, dropout: float, **kwargs):
+    def __init__(self, r: int, dropout: float, regularise: bool = False,
+                 **kwargs):
         """
         :param r: the number of attention heads; this number should be a factor
         of model dimensionality (embedding size); when r == 1, the layer has no
         trainable parameters and behaves as a regular single-head scaled
         dot-product attention stack
         :param dropout: applies dropout to attention weights
+        :param regularise: apply regularisation to softmax attention weights
+        in multi-head attention; the regularisation forces different heads to
+        attend to different parts of a sequence. See equation 8 in
+        "A Structured Self-attentive Sentence Embedding"
+        (https://arxiv.org/abs/1703.03130) for more details
         :param kwargs: Keras-specific layer arguments
         """
         super().__init__(**kwargs)
@@ -77,6 +87,11 @@ class MultiHeadAttention(layers.Layer):
         if not (isinstance(dropout, float) and 0 <= dropout < 1):
             raise ValueError('dropout must be a float in [0, 1)')
         self.dropout = dropout
+        if r == 1 and regularise:
+            raise ValueError(
+                'Regularisation is only available in multi-head attention'
+            )
+        self.regularise = regularise
         # placeholders for model weights
         self.q_map = None
         self.k_map = None
@@ -136,10 +151,38 @@ class MultiHeadAttention(layers.Layer):
             )
         return super().build(input_shape)
 
+    def add_regularisation(self, weights):
+        """
+        Given a batch of multi-head attention weights of shape (r*b, l_q, l_k),
+        where b is the batch size, r is the number of attention heads, l_q is
+        the query (Q) length and l_k is the key (K) length, group all attention
+        vectors corresponding to the same word in Q, and for each attention
+        group $A$ of shape (r, l_k), calculate $| A \times {A}^{T} - I |$. Here
+        $| |$ denotes the Frobenius norm (the L2 matrix norm) and $I$ denotes
+        the identity matrix of rank r.
+        """
+        rb, l_q, l_k = K.int_shape(weights)
+        attention_groups = ops.group_attentions(self.r, weights)
+        # flatten the batch axis to produce a tensor of [r, l_k] attention
+        # groups
+        groups = K.reshape(attention_groups, [-1, self.r, l_k])
+        # calculate $A \times A^T$ - similarity between attention weights
+        similarity = K.batch_dot(groups, groups, axes=[2, 2])
+        norms = ops.frobenius_norm(
+            similarity - tf.eye(self.r, dtype=K.floatx()), axes=[1, 2]
+        )
+        # restore batch-structure and calculate average loss contribution
+        # across all time-steps in a sequence
+        with K.name_scope('activity_regularizer'):
+            loss_contributions = K.mean(K.reshape(norms, [-1, l_q]), axis=None)
+        self.add_loss([loss_contributions], inputs=True)
+
     def attention(self, q, k, v, training=None) -> KTensor:
         ndim = K.cast(K.shape(q)[-1], dtype=K.floatx())
         product = K.batch_dot(q, k, axes=(2, 2))
         weights = K.softmax(product / K.sqrt(ndim))
+        if self.regularise:
+            self.add_regularisation(weights)
         weights_dropout = ops.apply_dropout(self.dropout, weights, training)
         return K.batch_dot(weights_dropout, v)
 
@@ -182,8 +225,22 @@ class TargetMultiHeadAttention(MultiHeadAttention):
     shape (1, d_model).
     """
 
-    def __init__(self, r: int, dropout: float, **kwargs):
-        super().__init__(r, dropout, **kwargs)
+    def __init__(self, r: int, dropout: float, regularise: bool = False,
+                 **kwargs):
+        """
+        :param r: the number of attention heads; this number should be a factor
+        of model dimensionality (embedding size); when r == 1, the layer has no
+        trainable parameters and behaves as a regular single-head scaled
+        dot-product attention stack
+        :param dropout: applies dropout to attention weights
+        :param regularise: apply regularisation to softmax attention weights
+        in multi-head attention; the regularisation forces different heads to
+        attend to different parts of a sequence. See equation 8 in
+        "A Structured Self-attentive Sentence Embedding"
+        (https://arxiv.org/abs/1703.03130) for more details
+        :param kwargs: Keras-specific layer arguments
+        """
+        super().__init__(r, dropout, regularise, **kwargs)
         # placeholder for query parameters
         self.query = None
 
@@ -392,7 +449,7 @@ class StdIsotropicGaussian(layers.Layer):
         # add kl divergence as activity regularizer
         with K.name_scope('activity_regularizer'):
             kld = K.mean(ops.isotropic_gaussian_kld(mean, log_std), axis=None)
-        self.add_loss([kld], inputs=[inputs])
+        self.add_loss([kld], inputs=True)
         # return a sample
         return self.sample(mean, log_std)
 
