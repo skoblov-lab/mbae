@@ -15,7 +15,7 @@ class SelfAttentionBlock:
 
     def __init__(self, r: int, d_ffn: int, activation: t.Union[str, t.Callable],
                  dropout_softmax: float, dropout_att: float, dropout_ffn: float,
-                 regularise: bool = False):
+                 regularise: float = 0.0):
         """
         :param r: the number of attention heads
         :param d_ffn: hidden layer size in the point-wise FFN stack

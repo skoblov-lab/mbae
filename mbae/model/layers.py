@@ -65,7 +65,7 @@ class MultiHeadAttention(layers.Layer):
     The layer does not implement attention masking.
     """
 
-    def __init__(self, r: int, dropout: float, regularise: bool = False,
+    def __init__(self, r: int, dropout: float, regularise: float = 0.0,
                  **kwargs):
         """
         :param r: the number of attention heads; this number should be a factor
@@ -77,7 +77,9 @@ class MultiHeadAttention(layers.Layer):
         in multi-head attention; the regularisation forces different heads to
         attend to different parts of a sequence. See equation 8 in
         "A Structured Self-attentive Sentence Embedding"
-        (https://arxiv.org/abs/1703.03130) for more details
+        (https://arxiv.org/abs/1703.03130) for more details. The argument
+        controls the strength of regularisation. It can vary from 0 (no
+        regularisation) to 1.0.
         :param kwargs: Keras-specific layer arguments
         """
         super().__init__(**kwargs)
@@ -91,6 +93,8 @@ class MultiHeadAttention(layers.Layer):
             raise ValueError(
                 'Regularisation is only available in multi-head attention'
             )
+        if not (isinstance(regularise, float) and 0 <= regularise <= 1):
+            raise ValueError('regularise must be a float in [0, 1]')
         self.regularise = regularise
         # placeholders for model weights
         self.q_map = None
@@ -168,13 +172,16 @@ class MultiHeadAttention(layers.Layer):
         groups = K.reshape(attention_groups, [-1, self.r, l_k])
         # calculate $A \times A^T$ - similarity between attention weights
         similarity = K.batch_dot(groups, groups, axes=[2, 2])
+        # subtract an identity matrix to enforce sparsity
         norms = ops.frobenius_norm(
             similarity - tf.eye(self.r, dtype=K.floatx()), axes=[1, 2]
         )
-        # restore batch-structure and calculate average loss contribution
-        # across all time-steps in a sequence
+        # restore batch-structure, calculate average loss contribution
+        # across all time-steps in a sequence and multiple by self.regularise
         with K.name_scope('activity_regularizer'):
-            loss_contributions = K.mean(K.reshape(norms, [-1, l_q]), axis=None)
+            loss_contributions = (
+                self.regularise * K.mean(K.reshape(norms, [-1, l_q]), axis=None)
+            )
         self.add_loss([loss_contributions], inputs=True)
 
     def attention(self, q, k, v, training=None) -> KTensor:
@@ -213,6 +220,7 @@ class MultiHeadAttention(layers.Layer):
         config = super().get_config()
         config['r'] = self.r
         config['dropout'] = self.dropout
+        config['regularise'] = self.regularise
         return config
 
 
@@ -225,7 +233,7 @@ class TargetMultiHeadAttention(MultiHeadAttention):
     shape (1, d_model).
     """
 
-    def __init__(self, r: int, dropout: float, regularise: bool = False,
+    def __init__(self, r: int, dropout: float, regularise: float = 0.0,
                  **kwargs):
         """
         :param r: the number of attention heads; this number should be a factor
@@ -237,7 +245,9 @@ class TargetMultiHeadAttention(MultiHeadAttention):
         in multi-head attention; the regularisation forces different heads to
         attend to different parts of a sequence. See equation 8 in
         "A Structured Self-attentive Sentence Embedding"
-        (https://arxiv.org/abs/1703.03130) for more details
+        (https://arxiv.org/abs/1703.03130) for more details. The argument
+        controls the strength of regularisation. It can vary from 0 (no
+        regularisation) to 1.0.
         :param kwargs: Keras-specific layer arguments
         """
         super().__init__(r, dropout, regularise, **kwargs)
