@@ -26,7 +26,7 @@ def binomial_negative_log_likelihood(n: t.Union[int, float], k: KTensor,
     """
     n_minus_k = float(n) - k
     log_likelihood = (
-        math.lgamma(n + 1)
+        math.lgamma(n + 1.0)
         - tf.math.lgamma(k + 1.0)
         - tf.math.lgamma(n_minus_k + 1.0)
         + k * tf.math.log(p)
