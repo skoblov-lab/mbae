@@ -1,7 +1,6 @@
-import copy
 import operator as op
 import typing as t
-from itertools import chain, count
+from itertools import count
 
 import numpy as np
 from fn import F
@@ -10,35 +9,6 @@ T = t.TypeVar('T')
 
 
 homogenous = F(map) >> set >> len >> F(op.contains, [0, 1])
-flatmap = F(map) >> chain.from_iterable
-strictmap = F(map) >> list
-
-
-int_t = np.int32
-
-
-class SequenceEncoder:
-    """
-    Create a callable that encodes text as an integer array
-    """
-    def __init__(self, alphabet: t.Iterable[str]):
-        unique = sorted(set(chain.from_iterable(alphabet)))
-        self._mapping = dict(
-            (val, key) for key, val in enumerate(unique, 1)
-        )
-        self._oov = len(self._mapping) + 1
-
-    def __call__(self, sequence: str, dtype=int_t) -> np.ndarray:
-        encoded = (self._mapping.get(char, self._oov) for char in sequence)
-        return np.fromiter(encoded, dtype, len(sequence))
-
-    @property
-    def mapping(self) -> t.Mapping[str, int]:
-        return copy.deepcopy(self._mapping)
-
-    @property
-    def oov(self) -> int:
-        return self._oov
 
 
 def expand_categories(categories: np.ndarray, dtype) -> np.ndarray:
