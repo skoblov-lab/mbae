@@ -15,14 +15,19 @@ setup(
     packages=['mbae', 'mbae_resources'],
     package_data={
         'mbae_resources': [
-            'alleles.faa',
+            'binding_regions.fsa',
             'consurf.tsv',
-            'encoder.joblib',
             'config.json',
             '*.h5'
         ]
     },
     install_requires=[
         "importlib_resources ; python_version<'3.7'",
-    ]
+        'click>=7.1.2',
+        'numpy>=1.18.1',
+        'pandas>=1.0.3',
+        'biopython>=1.76',
+        'toolz>=0.10.0',
+        'tensorflow==2.2'
+    ],
 )
