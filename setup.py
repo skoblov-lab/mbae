@@ -28,7 +28,8 @@ setup(
         'pandas>=1.0.3',
         'biopython>=1.76',
         'toolz>=0.10.0',
-        'tensorflow==2.2'
+        'tensorflow==2.2',
+        'fn'
     ],
     scripts=['mbae.py']
 )
