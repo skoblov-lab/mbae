@@ -30,4 +30,5 @@ setup(
         'toolz>=0.10.0',
         'tensorflow==2.2'
     ],
+    scripts=['mbae.py']
 )
