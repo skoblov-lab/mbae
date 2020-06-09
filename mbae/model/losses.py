@@ -2,6 +2,7 @@ import math
 import typing as t
 
 import tensorflow as tf
+from tensorflow.keras.utils import get_custom_objects
 from toolz import curry
 
 from mbae.model.base import KTensor
@@ -52,6 +53,12 @@ def binomial_absolute_expectation_difference(n: t.Union[int, float], k: KTensor,
     """
     expectation = p * float(n)
     return tf.abs(k - expectation)
+
+
+get_custom_objects().update({
+    'binomial_negative_log_likelihood': binomial_negative_log_likelihood,
+    'binomial_absolute_expectation_difference': binomial_absolute_expectation_difference
+})
 
 
 if __name__ == '__main__':
