@@ -57,3 +57,9 @@ $ mbae.py -a 'HLA-A*02:02' -a 'HLA-C*05:29' -p peptides.tsv -l 9
 The command can operate in two modes: simple prediction and scanning prediction.
 In the first case we take entire peptides as inputs to the affinity estimator. This mode is useful when we want to estimate binding affinity of physiologically-long peptides. To invoke simple prediction mode, you must omit the `--length` option. Bear in mind, the tool cannot predict affinity for peptides that are more than 16 amino acids long. Also, bear in mind, that long peptides are not particularly physiological. For example, [it's believed](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4744552/) that human MHC I alleles prefer peptides in the range of 8-10 amino acids.
 However, in many practical cases we have to deal with therapeutic peptides of non-physiological lengths, e.g. 24. In this case we want to scan our long peptides by rolling a window of physiological width and estimate binding affinity of each window. Specifying `--length` invokes scanning mode. In this mode you can also specify target positions (e.g. position of a cancer-specific mutation) that must be covered by a scanning window for it to be evaluated. You can refer to the help-string of option `--peptides` for further details.
+
+The command writes results to standard output. It is a tab-separated table with four columns:
+1. `peptide` - original peptide as provided via `--peptides`;
+2. `allele` - an MHC allele name (as specified by `--allele`);
+3. `window` - a sequence that was evaluated by the model;
+4. `prediction` - predicted affinity; a value in the range (0, 1]; larger values mean higher affinity
