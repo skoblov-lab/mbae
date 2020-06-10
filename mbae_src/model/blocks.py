@@ -2,8 +2,8 @@ import typing as t
 
 from tensorflow.keras import layers
 
-from mbae.model.base import KTensor
-from mbae.model.layers import LayerNormalisation, MultiHeadAttention, \
+from mbae_src.model.base import KTensor
+from mbae_src.model.layers import LayerNormalisation, MultiHeadAttention, \
     PositionWiseFFN
 
 

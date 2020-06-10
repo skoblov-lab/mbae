@@ -6,7 +6,7 @@ import numpy as np
 from tensorflow.keras import backend as K
 from tensorflow.keras.utils import get_custom_objects
 
-from mbae.model.base import KTensor
+from mbae_src.model.base import KTensor
 
 
 def split_heads(r: int, x: KTensor) -> KTensor:

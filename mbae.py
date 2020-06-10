@@ -13,7 +13,7 @@ from Bio import SeqIO
 
 import mbae_resources
 from mbae_resources import resources, CONSURF_SCORE
-from mbae.data import preprocessing as pp, encoding
+from mbae_src.data import preprocessing as pp, encoding
 
 
 def load_consurf() -> pd.DataFrame:

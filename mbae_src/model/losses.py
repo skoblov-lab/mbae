@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.keras.utils import get_custom_objects
 from toolz import curry
 
-from mbae.model.base import KTensor
+from mbae_src.model.base import KTensor
 
 
 # noinspection PyTypeChecker

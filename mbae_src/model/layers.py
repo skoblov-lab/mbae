@@ -6,8 +6,8 @@ from tensorflow.keras import backend as K
 from tensorflow.keras import layers, initializers, activations
 from tensorflow.keras.utils import get_custom_objects
 
-from mbae.model.base import KTensor, KTensorShape
-from mbae.model import ops
+from mbae_src.model.base import KTensor, KTensorShape
+from mbae_src.model import ops
 
 A = t.TypeVar('A')
 

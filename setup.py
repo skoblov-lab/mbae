@@ -12,7 +12,7 @@ setup(
     author='Ilia Korvigo',
     author_email='',
     url='',
-    packages=['mbae', 'mbae_resources'],
+    packages=['mbae_src', 'mbae_resources'],
     package_data={
         'mbae_resources': [
             'binding_regions.fsa',
