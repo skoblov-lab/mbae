@@ -1,5 +1,6 @@
 import sys
 from distutils.core import setup
+from setuptools import find_packages
 
 if sys.version_info < (3, 6, 3):
     print('This package requires Python >= 3.6.3')
@@ -12,7 +13,7 @@ setup(
     author='Ilia Korvigo',
     author_email='',
     url='',
-    packages=['mbae_src', 'mbae_resources'],
+    packages=find_packages(),
     package_data={
         'mbae_resources': [
             'binding_regions.fsa',
