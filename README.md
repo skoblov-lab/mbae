@@ -6,7 +6,7 @@ Canonically pronounced as British 'ember'. The package contains yet another MHC 
 
 If you don't want to use a GPU for inference, all you need is
 ```
-pip install --no-cache-dir https://github.com/skoblov-lab/mbae.git
+pip install --no-cache-dir git+https://github.com/skoblov-lab/mbae.git
 ```
 If you do want to utilise a GPU, you will need to uninstall `tensorflow` and install `tensorflow-gpu>=2.2`.
 
