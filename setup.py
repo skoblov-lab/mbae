@@ -2,8 +2,8 @@ import sys
 from distutils.core import setup
 from setuptools import find_packages
 
-if sys.version_info < (3, 6, 3):
-    print('This package requires Python >= 3.6.3')
+if sys.version_info < (3, 7, 0):
+    print('This package requires Python >= 3.7.0')
     sys.exit(1)
 
 setup(
@@ -30,6 +30,7 @@ setup(
         'biopython>=1.76',
         'toolz>=0.10.0',
         'tensorflow==2.2',
+        'wget>=3.2',
         'fn'
     ],
     scripts=['mbae.py']
