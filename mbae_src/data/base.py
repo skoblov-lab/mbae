@@ -18,7 +18,7 @@ class _Constants:
     bdata_url: str = "http://tools.iedb.org/static/main/binding_data_2013.zip"
     ipd_url: str = "https://raw.githubusercontent.com/ANHIG/IPDMHC/Latest/MHC.xml"
     imgt_history_url: str = "https://raw.githubusercontent.com/ANHIG/IMGTHLA/Latest/Allelelist_history.txt"
-    peptide_length: Boundaries = Boundaries(6, 15)
+    peptide_length: Boundaries = Boundaries(6, 16)
     rare_threshold: int = 100
     train_fraction: float = 0.8
     _iedb_renames: _Tuple_mapping = (
@@ -102,10 +102,14 @@ class _Constants:
         return dict(self._mapping_addition)
 
 
+# Init Constants; this object should be imported elsewhere
 Constants = _Constants()
 
 
 class Resource(metaclass=ABCMeta):
+    """
+    Abstract base class defining a basic interface for a Resource.
+    """
     def __init__(self, download_dir: t.Optional[str] = None, download_file_name: str = 'download'):
         self.parsed_data: t.Any = None
         self.download_dir = _handle_dir(download_dir)
