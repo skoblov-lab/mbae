@@ -518,11 +518,11 @@ def _dump_data(
     :param kwargs: kwargs to pass to `DataFrame.to_csv`.
     """
     if isinstance(dump_data, pd.DataFrame):
-        dump_data.to_csv(dump_path, **kwargs)
+        dump_data.to_csv(dump_path, index=False, **kwargs)
     elif isinstance(dump_data, t.Dict):
         pd.DataFrame(
             [list(dump_data.keys()), list(dump_data.values())]
-        ).to_csv(dump_path, **kwargs)
+        ).to_csv(dump_path, index=False, **kwargs)
     else:
         raise ValueError(f'{resource_name} -- dumping the input of such type is not supported')
     logging.info(f'{resource_name} -- saved parsed data to {dump_path}')
