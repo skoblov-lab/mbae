@@ -51,7 +51,7 @@ class IEDB(Resource):
         logging.info(f'{self.resource_name} -- downloaded resource from {Constants.iedb_url}')
         return result
 
-    def parse(self) -> pd.DataFrame:
+    def parse(self, cutoffs: t.List[int] = Constants.ord_cutoffs) -> pd.DataFrame:
         """
         Parses the downloaded IEDB resource and assigns the parsed DataFrame to self.parsed_data
         :return: Parsed IEDB data.
@@ -89,7 +89,7 @@ class IEDB(Resource):
         df = _finalize_filtering(df, self.resource_name, self.mapping)
 
         # Finalize IEDB preparation
-        df = _finalize_data_source(df, 'IEDB', list(Constants.data_source_final_fields))
+        df = _finalize_data_source(df, 'IEDB', list(Constants.data_source_final_fields), cutoffs)
         logging.info(f'IEDB -- completed resource preparation; records: {len(df)}')
         self.parsed_data = df
         return df
@@ -137,7 +137,7 @@ class Bdata(Resource):
         logging.info(f'{self.resource_name} -- downloaded resource from {Constants.bdata_url}')
         return result
 
-    def parse(self):
+    def parse(self, cutoffs: t.List[int] = Constants.ord_cutoffs):
         """
         Parses the downloaded Bdata2013 resource and assigns the parsed DataFrame to self.parsed_data
         :return: Parsed Bdata2013.
@@ -157,7 +157,7 @@ class Bdata(Resource):
         df = _finalize_filtering(df, self.resource_name, self.mapping)
 
         # Finalize Bdata preparation
-        df = _finalize_data_source(df, self.resource_name, list(Constants.data_source_final_fields))
+        df = _finalize_data_source(df, self.resource_name, list(Constants.data_source_final_fields), cutoffs)
         logging.info(f'{self.resource_name} -- completed resource preparation; records: {len(df)}')
         self.parsed_data = df
         return df
@@ -479,7 +479,8 @@ def _finalize_filtering(df: pd.DataFrame, resource_name: str, mapping: t.Mapping
     return df
 
 
-def _finalize_data_source(df: pd.DataFrame, df_name: str, final_fields: t.List[str]) -> pd.DataFrame:
+def _finalize_data_source(
+        df: pd.DataFrame, df_name: str, final_fields: t.List[str], cutoffs: t.List[int]) -> pd.DataFrame:
     """
     A helper function for finalizing the Resource preparation (e.g., IEDB).
     Creates `measurement_ord` field, categorizing `measurement` values into pre-defined categories
@@ -492,7 +493,7 @@ def _finalize_data_source(df: pd.DataFrame, df_name: str, final_fields: t.List[s
     :return: A finalized DatFrame.
     """
     # -- Categorize measurements
-    df['measurement_ord'] = df['measurement'].apply(lambda x: categorise(Constants.ord_cutoffs, x))
+    df['measurement_ord'] = df['measurement'].apply(lambda x: categorise(cutoffs, x))
     # -- Handle `inequality`
     df.replace({'inequality': Constants.inequality_renames})
     # -- Set source field for tracking records

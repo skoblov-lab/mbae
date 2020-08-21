@@ -45,14 +45,14 @@ class _Constants:
         ('=', '='),
         ('>', '>'),
         ('<', '<'))
-    iedb_quantitative_assays: t.Tuple[str] = (
+    iedb_quantitative_assays: t.Tuple[str, ...] = (
         'cellular MHC/competitive/fluorescence',
         'cellular MHC/competitive/radioactivity',
         'cellular MHC/direct/fluorescence',
         'purified MHC/competitive/fluorescence',
         'purified MHC/competitive/radioactivity',
         'purified MHC/direct/fluorescence')
-    data_source_final_fields: t.Tuple[str] = (
+    data_source_final_fields: t.Tuple[str, ...] = (
         'accession',
         'peptide',
         'measurement',
@@ -76,7 +76,7 @@ class _Constants:
         ('H-2-Dk', 'H-2-Dk'),
         ('H-2-Ld', 'H-2-Ld'),
     )
-    ord_cutoffs: t.Tuple[int] = (
+    _ord_cutoffs: t.Tuple[int, ...] = (
         10,
         100,
         500,
@@ -100,6 +100,10 @@ class _Constants:
     @property
     def mapping_addition(self) -> t.Dict[str, str]:
         return dict(self._mapping_addition)
+
+    @property
+    def ord_cutoffs(self) -> t.List[int]:
+        return list(self._ord_cutoffs)
 
 
 # Init Constants; this object should be imported elsewhere
