@@ -97,14 +97,12 @@ def scan_peptide(length: int, seq: str) -> t.List[str]:
 
 @click.group('mbae', context_settings=dict(help_option_names=['-h', '--help']),
              invoke_without_command=True)
-@click.pass_context
-def mbae(ctx):
+def mbae():
     pass
 
 
 @mbae.command('alleles', help='List all supported alleles')
-@click.pass_context
-def list_alleles(ctx):
+def list_alleles():
     for allele in sorted(load_binding_regions()):
         print(allele)
 
@@ -125,8 +123,7 @@ def list_alleles(ctx):
               help=('length of the peptide-scanning window; if no position is '
                     'provided, complete peptide sequences are considered;'
                     'specifying this option invokes scanning mode'))
-@click.pass_context
-def predict(ctx, allele: t.Sequence[str], peptides: str,
+def predict(allele: t.Sequence[str], peptides: str,
             length: t.Optional[int]):
     if not (length is None or length):
         raise ValueError('length of 0 is not allowed')
@@ -145,22 +142,22 @@ def predict(ctx, allele: t.Sequence[str], peptides: str,
         raise click.BadParameter(
             '--peptides must specify a headerless table with 1 or 2 columns'
         )
-    pept_seqs = peptide_table[0]
+    peptide_seqs = peptide_table[0]
     # make sure all peptides are unique
-    if pept_seqs.unique().shape[0] != pept_seqs.shape[0]:
+    if peptide_seqs.unique().shape[0] != peptide_seqs.shape[0]:
         raise ValueError('duplicate peptides are not allowed')
     try:
         # by trying to convert targets to integers we are also checking whether
         # there are any NaNs and/or non-numeric values
         # we subtract 1 from targets to convert 1-based indices into 0-based
-        pept_targets = (None if peptide_table.shape[1] == 1 else
-                        peptide_table[1].astype(int) - 1)
+        peptide_targets = (
+            None if peptide_table.shape[1] == 1 else peptide_table[1].astype(int) - 1)
     except ValueError:
         raise click.BadParameter(
             'the second column of --peptides must contain integers with no '
             'missing values'
         )
-    if length is None and pept_targets is not None:
+    if length is None and peptide_targets is not None:
         raise click.BadParameter(
             f'the second column in --peptides is only supported in scanning '
             f'mode, but --length is unspecified'
@@ -172,7 +169,7 @@ def predict(ctx, allele: t.Sequence[str], peptides: str,
             f'models ({pep_len})'
         )
     # if length is None, make sure no peptides exceed the supported length
-    if length is None and pept_seqs.apply(len).max() > pep_len:
+    if length is None and peptide_seqs.apply(len).max() > pep_len:
         raise click.BadParameter(
             f'received peptides exceeding the maximum length supported by our '
             f'models; you should use scanning mode or remove sequences of more '
@@ -180,13 +177,13 @@ def predict(ctx, allele: t.Sequence[str], peptides: str,
         )
     # create a dataset
     records = []
-    if pept_targets is None:
-        for peptide, mhc in product(pept_seqs, mhcs):
+    if peptide_targets is None:
+        for peptide, mhc in product(peptide_seqs, mhcs):
             windows = scan_peptide(length, peptide) if length else [peptide]
             for window in windows:
                 records.append({'allele': mhc, 'peptide': peptide, 'window': window})
     else:
-        for (peptide, target), mhc in product(zip(pept_seqs, pept_targets), mhcs):
+        for (peptide, target), mhc in product(zip(peptide_seqs, peptide_targets), mhcs):
             windows = scan_peptide_target(length, peptide, target)
             for window in windows:
                 records.append({'allele': mhc, 'peptide': peptide, 'window': window})
@@ -199,14 +196,13 @@ def predict(ctx, allele: t.Sequence[str], peptides: str,
     # get mhc_len most variable positions (as per consurf) and encode mhc
     # sequences
     mhc_positions = (
-        consurf
-            .sort_values(CONSURF_SCORE, ascending=False)
-            .iloc[:mhc_len, 0]
-            .sort_values()
+        consurf.sort_values(
+            CONSURF_SCORE, ascending=False
+        ).iloc[:mhc_len, 0].sort_values()
     )
-    mhc_subsetter = op.itemgetter(*mhc_positions)
+    mhc_sub_setter = op.itemgetter(*mhc_positions)
     mhc_seqs = [
-        mhc_subsetter(binding_regions[mhc]) for mhc in data['allele']
+        mhc_sub_setter(binding_regions[mhc]) for mhc in data['allele']
     ]
     mhc_encoded, _ = pp.stack(
         [encoding.encode_protein(mhc) for mhc in mhc_seqs],
@@ -222,8 +218,7 @@ def predict(ctx, allele: t.Sequence[str], peptides: str,
 
 
 @mbae.group(help='Prepare mbae resources')
-@click.pass_context
-def prepare(ctx):
+def prepare():
     pass
 
 
@@ -257,8 +252,7 @@ def prepare(ctx):
               help='If the flag is provided, will output logging messages '
                    'with the info describing main data processing steps. '
                    'By default, outputs only warnings. ')
-@click.pass_context
-def sequences(ctx, download_dir, output, save, accessions, accessions_file, profile, threads, verbose):
+def sequences(download_dir, output, save, accessions, accessions_file, profile, threads, verbose):
     # Parse and validate arguments
     # -- Handle the save option
     valid_save_options = ['final', 'parsed', 'raw']
@@ -361,8 +355,7 @@ def sequences(ctx, download_dir, output, save, accessions, accessions_file, prof
               help='If the flag is provided, will output logging messages '
                    'with the info describing main data processing steps. '
                    'By default, outputs only warnings. ')
-@click.pass_context
-def dataset(ctx, download_dir, database, mapping, save,
+def dataset(download_dir, database, mapping, save,
             separate_rare, rare_threshold, sep_fraction, sep_mode,
             cutoffs, verbose):
     # Parse and validate arguments
