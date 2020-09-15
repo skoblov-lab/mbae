@@ -58,8 +58,8 @@ class _Resource(AbstractResource):
         """
         if self.parsed_data is None:
             raise ValueError(f'{self.resource_name} -- no parsed data to dump (call `parse` method first)')
-        _dump_data(
-            dump_path=dump_path, dump_data=self.parsed_data,
+        dump_data(
+            path=dump_path, data=self.parsed_data,
             resource_name=self.resource_name)
 
 
@@ -578,27 +578,27 @@ def _cut_sequence(seq: SeqRec, profile_path: str, threads: int = 1) -> SeqRec:
             return list(SeqIO.parse(af, 'fasta'))[-1]
 
 
-def _dump_data(
-        dump_path: str, resource_name: str,
-        dump_data: t.Union[pd.DataFrame, t.Dict, t.List[SeqRec]]) -> None:
+def dump_data(
+        path: str, resource_name: str,
+        data: t.Union[pd.DataFrame, t.Dict, t.List[SeqRec]]) -> None:
     """
     A helper function to dump the resource's data.
     Consult with type annotations to check which data types are supported.
-    :param dump_path: A path to dump to.
+    :param path: A path to dump to.
     :param resource_name: A name of the resource for formatting errors and logging messages.
-    :param dump_data: Data to dump.
+    :param data: Data to dump.
     """
-    if isinstance(dump_data, pd.DataFrame):
-        dump_data.to_csv(dump_path, index=False, sep='\t')
-    elif isinstance(dump_data, t.Dict):
+    if isinstance(data, pd.DataFrame):
+        data.to_csv(path, index=False, sep='\t')
+    elif isinstance(data, t.Dict):
         pd.DataFrame(
-            [list(dump_data.keys()), list(dump_data.values())]
-        ).to_csv(dump_path, index=False, sep='\t')
-    elif isinstance(dump_data, t.List) and dump_data and isinstance(dump_data[0], SeqRec):
-        SeqIO.write(dump_data, dump_path, 'fasta')
+            [list(data.keys()), list(data.values())]
+        ).to_csv(path, index=False, sep='\t')
+    elif isinstance(data, t.List) and data and isinstance(data[0], SeqRec):
+        SeqIO.write(data, path, 'fasta')
     else:
         raise ValueError(f'{resource_name} -- dumping the input of such type is not supported')
-    logging.info(f'{resource_name} -- saved parsed data to {dump_path}')
+    logging.info(f'{resource_name} -- saved parsed data to {path}')
 
 
 def _handle_dir(directory: t.Optional[str] = None) -> t.Union[TemporaryDirectory, PosixPath]:

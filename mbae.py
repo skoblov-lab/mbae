@@ -1,5 +1,7 @@
 #! /usr/bin/env python
 
+# TODO: test whether local resources load without `resources` module but a relative path instead
+
 import logging
 import operator as op
 import sys
@@ -18,7 +20,7 @@ from mbae_resources import resources, CONSURF_SCORE
 from mbae_src.data import preprocessing as pp, encoding
 from mbae_src.data.base import Constants
 from mbae_src.data.prepare import (
-    obtain_mapping, read_mapping, separate_fraction, separate_abundant, _dump_data,
+    obtain_mapping, read_mapping, separate_fraction, separate_abundant, dump_data,
     IEDB, Bdata,
     IMGTHLAhistory, IPDMHChistory, IMGTHLAsequences, IPDMHCsequences)
 
@@ -304,8 +306,8 @@ def sequences(ctx, download_dir, output, save, accessions, accessions_file, prof
         ipd.dump(f'{download_dir}/IPD-MHC_sequences.fasta')
         imgt.dump(f'{download_dir}/IMGTHLA_sequences.fasta')
     if save_final:
-        _dump_data(
-            dump_path=f'{download_dir}/{output}', dump_data=ipd.parsed_data + imgt.parsed_data,
+        dump_data(
+            path=f'{download_dir}/{output}', data=ipd.parsed_data + imgt.parsed_data,
             resource_name='IPD-MHC+IMGT/HLA sequences')
 
 
