@@ -1,15 +1,7 @@
-import copy
-import typing as t
-from itertools import chain
-
 import numpy as np
-from Bio.Alphabet import IUPAC
-
 
 PROTEIN_MAPPING = {
-    letter: i for i, letter in enumerate(
-        chain(IUPAC.extended_protein.letters, '-')
-    )
+    letter: i for i, letter in enumerate('ACDEFGHIKLMNPQRSTVWYBXZJUO-')
 }
 
 
