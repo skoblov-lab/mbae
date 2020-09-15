@@ -1,8 +1,6 @@
 import typing as t
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
-from pathlib import Path, PosixPath
-from tempfile import TemporaryDirectory
 
 _Tuple_mapping = t.Tuple[t.Tuple[str, str]]
 Boundaries = t.NamedTuple('boundaries', [('start', int), ('end', int)])
@@ -13,11 +11,18 @@ class _Constants:
     """
     Data class holding constant values required for data preparation.
     """
+    alignment_tool: str = 'mafft'
+    alignment_command: t.Callable[[str, str], str] = (
+        lambda seq, msa, threads:
+        f'mafft --add {seq} --keeplength --anysymbol --thread {threads} {msa}')
+    alignment_profile_path: str = './mbae_resources/binding_regions.fsa'
     available_sources: t.Tuple = ('iedb', 'bdata')
     iedb_url: str = "https://www.iedb.org/downloader.php?file_name=doc/mhc_ligand_full_single_file.zip"
     bdata_url: str = "http://tools.iedb.org/static/main/binding_data_2013.zip"
-    ipd_url: str = "https://raw.githubusercontent.com/ANHIG/IPDMHC/Latest/MHC.xml"
+    ipd_history_url: str = "https://raw.githubusercontent.com/ANHIG/IPDMHC/Latest/MHC.xml"
+    ipd_sequences_url: str = "https://raw.githubusercontent.com/ANHIG/IPDMHC/Latest/MHC_prot.fasta"
     imgt_history_url: str = "https://raw.githubusercontent.com/ANHIG/IMGTHLA/Latest/Allelelist_history.txt"
+    imgt_sequences_url: str = "https://raw.githubusercontent.com/ANHIG/IMGTHLA/Latest/hla_prot.fasta"
     peptide_length: Boundaries = Boundaries(6, 16)
     rare_threshold: int = 100
     train_fraction: float = 0.8
@@ -33,7 +38,8 @@ class _Constants:
         ('MHC allele class', 'mhc_type'),
         ('Qualitative Measure', 'measurement_qual'),
         ('Assay Group', 'assay_group'),
-        ('Method/Technique', 'method'))
+        ('Method/Technique', 'method')
+    )
     _bdata_renames: _Tuple_mapping = (
         ('mhc', 'allotype'),
         ('sequence', 'peptide'),
@@ -44,14 +50,16 @@ class _Constants:
         ('<=', '<'),
         ('=', '='),
         ('>', '>'),
-        ('<', '<'))
+        ('<', '<')
+    )
     iedb_quantitative_assays: t.Tuple[str, ...] = (
         'cellular MHC/competitive/fluorescence',
         'cellular MHC/competitive/radioactivity',
         'cellular MHC/direct/fluorescence',
         'purified MHC/competitive/fluorescence',
         'purified MHC/competitive/radioactivity',
-        'purified MHC/direct/fluorescence')
+        'purified MHC/direct/fluorescence'
+    )
     data_source_final_fields: t.Tuple[str, ...] = (
         'accession',
         'peptide',
@@ -110,17 +118,13 @@ class _Constants:
 Constants = _Constants()
 
 
-class Resource(metaclass=ABCMeta):
+class AbstractResource(metaclass=ABCMeta):
     """
     Abstract base class defining a basic interface for a Resource.
     """
-    def __init__(self, download_dir: t.Optional[str] = None, download_file_name: str = 'download'):
-        self.parsed_data: t.Any = None
-        self.download_dir = _handle_dir(download_dir)
-        self.download_path = Path(f'{self.download_dir.name}/{download_file_name}')
 
     @abstractmethod
-    def fetch(self):
+    def fetch(self, url: str):
         raise NotImplementedError
 
     @abstractmethod
@@ -128,19 +132,8 @@ class Resource(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
-    def dump(self, dump_path: str, kwargs: t.Dict[str, t.Any]):
+    def dump(self, dump_path: str):
         raise NotImplementedError
-
-
-def _handle_dir(directory: t.Optional[str] = None) -> t.Union[TemporaryDirectory, PosixPath]:
-    if directory is None:
-        return TemporaryDirectory()
-    if not isinstance(directory, str):
-        raise ValueError('Wrong input for directory')
-    directory = Path(directory)
-    if not directory.exists():
-        raise ValueError(f'The provided directory {directory.name} does not exist')
-    return directory
 
 
 if __name__ == '__main__':

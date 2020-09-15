@@ -1,5 +1,6 @@
 import sys
 from distutils.core import setup
+
 from setuptools import find_packages
 
 if sys.version_info < (3, 7, 0):
@@ -31,7 +32,8 @@ setup(
         'toolz>=0.10.0',
         'tensorflow==2.2',
         'wget>=3.2',
-        'fn'
+        'fn',
+        'tqdm'
     ],
     scripts=['mbae.py']
 )

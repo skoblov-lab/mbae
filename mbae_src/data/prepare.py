@@ -9,19 +9,61 @@
 """
 import bisect
 import logging
+import os
+import subprocess as sp
 import typing as t
 from itertools import chain, dropwhile, islice
 from numbers import Number
+from pathlib import Path, PosixPath
+from shutil import which
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from xml.etree import cElementTree, ElementTree
 
 import numpy as np
 import pandas as pd
 import wget
+from Bio import SeqIO, SeqRecord, Seq
+from tqdm import tqdm
 
-from mbae_src.data.base import Resource, Constants
+from mbae_src.data.base import AbstractResource, Constants
+
+SeqRec, Seq = SeqRecord.SeqRecord, Seq.Seq
 
 
-class IEDB(Resource):
+class _Resource(AbstractResource):
+
+    def __init__(self, resource_name: str, download_dir: t.Optional[str] = None, download_file_name: str = 'download'):
+        self.resource_name = resource_name
+        self.parsed_data: t.Any = None
+        self.download_dir = _handle_dir(download_dir)
+        self.download_path = Path(f'{self.download_dir.name}/{download_file_name}')
+
+    def fetch(self, url):
+        """
+        Downloads Resource from the default location.
+        :return: Path to a downloaded file (should be the same as {self.download_dir}/{self.download_file_name})
+        """
+        result = wget.download(url, str(self.download_path), None)
+        logging.info(f'{self.resource_name} -- downloaded resource from {url}')
+        return result
+
+    def parse(self):
+        raise NotImplementedError
+
+    def dump(self, dump_path: str):
+        """
+        Dumps the resource to `dump_path`.
+        :param dump_path: A valid path.
+        :return:
+        """
+        if self.parsed_data is None:
+            raise ValueError(f'{self.resource_name} -- no parsed data to dump (call `parse` method first)')
+        _dump_data(
+            dump_path=dump_path, dump_data=self.parsed_data,
+            resource_name=self.resource_name)
+
+
+class IEDB(_Resource):
     """
     Resource fetching and parsing IEDB data.
     """
@@ -35,21 +77,14 @@ class IEDB(Resource):
         :param mapping: Initializing IEDB requires valid mapping (i.e., a dictionary) between allotypes and accessions.
         If not provided, this mapping will be obtained via IMGTHLAhistory and IPDMHChistory classes.
         """
-        super().__init__(download_dir, download_file_name)
-        self.resource_name = 'IEDB'
+        super().__init__('IEDB', download_dir, download_file_name)
 
         # handle the `mapping` argument
         self.mapping = _handle_mapping(mapping, self.resource_name, download_dir)
         logging.info(f'{self.resource_name} -- successfully initialized resource')
 
-    def fetch(self) -> str:
-        """
-        Downloads IEDB from the default location.
-        :return: Path to a downloaded file (should be the same as {self.download_dir}/{self.download_file_name})
-        """
-        result = wget.download(Constants.iedb_url, str(self.download_path), None)
-        logging.info(f'{self.resource_name} -- downloaded resource from {Constants.iedb_url}')
-        return result
+    def fetch(self, url=Constants.iedb_url) -> str:
+        return super().fetch(url)
 
     def parse(self, cutoffs: t.List[int] = Constants.ord_cutoffs) -> pd.DataFrame:
         """
@@ -71,8 +106,7 @@ class IEDB(Resource):
         df = df[df['mhc_type'] == 'I']
         logging.info(f'{self.resource_name} -- filtered class I records; records: {len(df)}')
         # -- Filter quantitative records;
-        # -- TODO: we might change this behaviour later,
-        # -- TODO: once we've found a way of correct MS data usage
+        # -- TODO: We might change this behaviour once we've found a way of correct MS data usage
         # -- -- Assay is a quantitative one
         df = df[df['method'].isin(Constants.iedb_quantitative_assays)]
         logging.info(f'{self.resource_name} -- filtered quantitative assays; records: {len(df)}')
@@ -94,19 +128,8 @@ class IEDB(Resource):
         self.parsed_data = df
         return df
 
-    def dump(self, dump_path: str, kwargs) -> None:
-        """
-        Dumps the resource to `dump_path`.
-        :param dump_path: A valid path.
-        :param kwargs: kwargs to be passed to `DataFrame.to_csv`
-        :return:
-        """
-        _dump_data(
-            dump_path=dump_path, dump_data=self.parsed_data,
-            resource_name=self.resource_name, kwargs=kwargs)
 
-
-class Bdata(Resource):
+class Bdata(_Resource):
     """
     Resource fetching and parsing Bdata2013.
     """
@@ -120,22 +143,15 @@ class Bdata(Resource):
         :param mapping: Initializing IEDB requires valid mapping (i.e., a dictionary) between allotypes and accessions.
         If not provided, this mapping will be obtained via IMGTHLAhistory and IPDMHChistory classes.
         """
-        super().__init__(download_dir, download_file_name)
-        self.resource_name = 'Bdata'
+        super().__init__('Bdata', download_dir, download_file_name)
 
         # handle the `mapping` argument
         self.mapping = _handle_mapping(mapping, self.resource_name, download_dir)
 
         logging.info(f'{self.resource_name} -- successfully initialized resource')
 
-    def fetch(self) -> str:
-        """
-        Downloads IEDB from the default location.
-        :return: Path to a downloaded file (should be the same as {self.download_dir}/{self.download_file_name})
-        """
-        result = wget.download(Constants.bdata_url, str(self.download_path), None)
-        logging.info(f'{self.resource_name} -- downloaded resource from {Constants.bdata_url}')
-        return result
+    def fetch(self, url=Constants.bdata_url) -> str:
+        return super().fetch(url)
 
     def parse(self, cutoffs: t.List[int] = Constants.ord_cutoffs):
         """
@@ -162,19 +178,8 @@ class Bdata(Resource):
         self.parsed_data = df
         return df
 
-    def dump(self, dump_path: str, kwargs) -> None:
-        """
-        Dumps the resource to `dump_path`.
-        :param dump_path: A valid path.
-        :param kwargs: kwargs to be passed to `DataFrame.to_csv`
-        :return:
-        """
-        _dump_data(
-            dump_path=dump_path, dump_data=self.parsed_data,
-            resource_name=self.resource_name, kwargs=kwargs)
 
-
-class IPDMHChistory(Resource):
+class IPDMHChistory(_Resource):
     """
     Resource fetching and parsing xml dump of the IPDMHC database.
     """
@@ -184,18 +189,11 @@ class IPDMHChistory(Resource):
         :param download_dir: Path to a directory where the resource will be downloaded.
         :param download_file_name: How to name a raw downloaded file.
         """
-        super().__init__(download_dir, download_file_name)
-        self.resource_name = 'IPDMHC'
+        super().__init__('IPD-MHC history', download_dir, download_file_name)
         logging.info(f'{self.resource_name} -- successfully initialized resource')
 
-    def fetch(self) -> str:
-        """
-        Downloads IPDMHC xml from the default location.
-        :return: Path to a downloaded file (should be the same as {self.download_dir}/{self.download_file_name})
-        """
-        result = wget.download(Constants.ipd_url, str(self.download_path), None)
-        logging.info(f'{self.resource_name} -- downloaded resource from {Constants.ipd_url}')
-        return result
+    def fetch(self, url=Constants.ipd_history_url) -> str:
+        return super().fetch(url)
 
     def parse(self) -> t.Dict[str, str]:
         """
@@ -228,19 +226,8 @@ class IPDMHChistory(Resource):
 
         return dict(chain.from_iterable(map(parse_entry, tree.find('entries').findall('entry'))))
 
-    def dump(self, dump_path: str, kwargs) -> None:
-        """
-        Dumps the resource to `dump_path`.
-        :param dump_path: A valid path.
-        :param kwargs: kwargs to be passed to `DataFrame.to_csv`
-        :return:
-        """
-        _dump_data(
-            dump_path=dump_path, dump_data=self.parsed_data,
-            resource_name=self.resource_name, kwargs=kwargs)
 
-
-class IMGTHLAhistory(Resource):
+class IMGTHLAhistory(_Resource):
     """
     Resource fetching and parsing IMGT/HLA Allelelist_history.txt dump.
     """
@@ -250,18 +237,11 @@ class IMGTHLAhistory(Resource):
         :param download_dir: Path to a directory where the resource will be downloaded.
         :param download_file_name: How to name a raw downloaded file.
         """
-        super().__init__(download_dir, download_file_name)
-        self.resource_name = 'IMGTHLA'
+        super().__init__('IMGT/HLA history', download_dir, download_file_name)
         logging.info(f'{self.resource_name} -- successfully initialized resource')
 
-    def fetch(self) -> str:
-        """
-        Downloads IPDMHC xml from the default location.
-        :return: Path to a downloaded file (should be the same as {self.download_dir}/{self.download_file_name})
-        """
-        result = wget.download(Constants.imgt_history_url, str(self.download_path), None)
-        logging.info(f'{self.resource_name} -- downloaded resource from {Constants.imgt_history_url}')
-        return result
+    def fetch(self, url=Constants.imgt_history_url) -> str:
+        return super().fetch(url)
 
     def parse(self) -> t.Dict[str, str]:
         """
@@ -298,16 +278,43 @@ class IMGTHLAhistory(Resource):
         logging.info(f'{self.resource_name} -- successfully extracted mappings')
         return self.parsed_data
 
-    def dump(self, dump_path: str, kwargs) -> None:
-        """
-        Dumps the resource to `dump_path`.
-        :param dump_path: A valid path.
-        :param kwargs: kwargs to be passed to `DataFrame.to_csv`
-        :return:
-        """
-        _dump_data(
-            dump_path=dump_path, dump_data=self.parsed_data,
-            resource_name=self.resource_name, kwargs=kwargs)
+
+class SeqResource(_Resource):
+    def __init__(self, resource_name: str, download_dir: t.Optional[str], download_file_name: str):
+        super().__init__(resource_name, download_dir, download_file_name)
+        logging.info(f'{self.resource_name} -- successfully initialized resource')
+
+    def fetch(self, url) -> str:
+        return super().fetch(url)
+
+    def parse(
+            self, verbose: bool = False,
+            accessions: t.Optional[t.List[str]] = None, threads: int = 1,
+            profile_path=Constants.alignment_profile_path) -> t.List[SeqRec]:
+        if not self.download_path.exists():
+            raise ValueError(f'{self.resource_name} -- nothing to parse: {self.download_path} does not exist')
+        self.parsed_data = _parse_sequences(
+            path=self.download_path, resource_name=self.resource_name,
+            accessions=accessions, profile_path=profile_path,
+            threads=threads, verbose=verbose)
+        logging.info(f'{self.resource_name} -- finished parsing sequences; {len(self.parsed_data)} in total')
+        return self.parsed_data
+
+
+class IPDMHCsequences(SeqResource):
+    def __init__(self, download_dir: t.Optional[str] = None, download_file_name: str = 'MHC_prot.fasta'):
+        super().__init__('IPD-MHC sequences', download_dir, download_file_name)
+
+    def fetch(self, url=Constants.ipd_sequences_url) -> str:
+        return super().fetch(url)
+
+
+class IMGTHLAsequences(SeqResource):
+    def __init__(self, download_dir: t.Optional[str] = None, download_file_name: str = 'hla_prot.fasta'):
+        super().__init__('IMGT/HLA sequences', download_dir, download_file_name)
+
+    def fetch(self, url=Constants.imgt_sequences_url) -> str:
+        return super().fetch(url)
 
 
 def categorise(cutoffs: t.List[Number], x: Number) -> int:
@@ -504,28 +511,105 @@ def _finalize_data_source(
     return df
 
 
+def _parse_sequences(
+        path: str, resource_name: str,
+        accessions: t.Optional[t.List[str]],
+        profile_path: t.Optional[str],
+        verbose: bool = True, threads: int = 1) -> t.List[SeqRec]:
+    # parse initial sequences
+    seqs = list(SeqIO.parse(path, 'fasta'))
+    logging.info(f'{resource_name} -- loaded {len(seqs)} sequences')
+
+    # filter to target accessions
+    if accessions is not None:
+        seqs = list(filter(lambda s: _parse_accession(s) in accessions, seqs))
+        logging.info(f'{resource_name} -- filtered by accessions; {len(seqs)} left '
+                     f'(out of provided {len(set(accessions))}).')
+    else:
+        logging.warning(f'{resource_name} -- no accessions were provided. '
+                        f'Are you certain you need all ({len(seqs)}) available sequences?')
+
+    # cut sequences using alignment
+    if profile_path is not None:
+        # either a list of initial accessions or accessions from all the sequences
+        seq_accessions = set(accessions) if accessions else {_parse_accession(s) for s in seqs}
+        # directly pull sequences already present in profile
+        in_profile_seqs = list(filter(
+            lambda s: _parse_accession(s) in seq_accessions,
+            SeqIO.parse(profile_path, 'fasta')))
+        # accessions of the pulled sequences
+        in_profile_seqs_acc = {_parse_accession(s) for s in in_profile_seqs}
+        # the rest of the sequences are to be aligned
+        not_in_profile_seqs = list(filter(
+            lambda s: _parse_accession(s) not in in_profile_seqs_acc,
+            seqs))
+        logging.info(f'{resource_name} -- {len(in_profile_seqs)} sequences were found in profile {profile_path}')
+        logging.info(f'{resource_name} -- {len(not_in_profile_seqs)} will be aligned to {profile_path}')
+        # handle verbosity
+        not_in_profile_seqs = (
+            tqdm(not_in_profile_seqs, desc='Cutting sequences: ') if verbose else not_in_profile_seqs)
+        # combine pulled and cut sequences
+        seqs = in_profile_seqs + [_cut_sequence(s, profile_path, threads) for s in not_in_profile_seqs]
+
+    # warn regarding missed accessions
+    if accessions is not None:
+        seq_accessions = {_parse_accession(s) for s in seqs}
+        not_found = set(accessions) - seq_accessions
+        if not_found:
+            logging.warning(f'{resource_name} -- accessions {";".join(not_found)} were not found')
+    # TODO: Maybe include filtering X positions by the Consurf score
+    return seqs
+
+
+def _parse_accession(seq: SeqRec) -> str:
+    return seq.id.split(':')[1] if ':' in seq.id else seq.id
+
+
+def _cut_sequence(seq: SeqRec, profile_path: str, threads: int = 1) -> SeqRec:
+    if which(Constants.alignment_tool) is None:
+        raise ValueError(f'Alignment tool {Constants.alignment_tool} is no accessible')
+    with NamedTemporaryFile(mode='r+', encoding='utf-8') as sf:
+        SeqIO.write(seq, sf, 'fasta')
+        cmd = Constants.alignment_command(sf.name, profile_path, threads)
+        with NamedTemporaryFile(mode='r+', encoding='utf-8') as af, open(os.devnull, 'wb') as dn:
+            sf.seek(0)
+            sp.run(cmd.split(), stdout=af, stderr=dn, check=True)
+            af.seek(0)
+            return list(SeqIO.parse(af, 'fasta'))[-1]
+
+
 def _dump_data(
         dump_path: str, resource_name: str,
-        dump_data: t.Union[pd.DataFrame, t.Dict],
-        kwargs: t.Dict[str, t.Any]) -> None:
+        dump_data: t.Union[pd.DataFrame, t.Dict, t.List[SeqRec]]) -> None:
     """
-    A helper function to dump data of a resource.
-    Currently we have two resources types: A DataFrame and a Dict.
-    Both of them will be dumped using `DataFrame.to_csv`.
+    A helper function to dump the resource's data.
+    Consult with type annotations to check which data types are supported.
     :param dump_path: A path to dump to.
     :param resource_name: A name of the resource for formatting errors and logging messages.
     :param dump_data: Data to dump.
-    :param kwargs: kwargs to pass to `DataFrame.to_csv`.
     """
     if isinstance(dump_data, pd.DataFrame):
-        dump_data.to_csv(dump_path, index=False, **kwargs)
+        dump_data.to_csv(dump_path, index=False, sep='\t')
     elif isinstance(dump_data, t.Dict):
         pd.DataFrame(
             [list(dump_data.keys()), list(dump_data.values())]
-        ).to_csv(dump_path, index=False, **kwargs)
+        ).to_csv(dump_path, index=False, sep='\t')
+    elif isinstance(dump_data, t.List) and dump_data and isinstance(dump_data[0], SeqRec):
+        SeqIO.write(dump_data, dump_path, 'fasta')
     else:
         raise ValueError(f'{resource_name} -- dumping the input of such type is not supported')
     logging.info(f'{resource_name} -- saved parsed data to {dump_path}')
+
+
+def _handle_dir(directory: t.Optional[str] = None) -> t.Union[TemporaryDirectory, PosixPath]:
+    if directory is None:
+        return TemporaryDirectory()
+    if not isinstance(directory, str):
+        raise ValueError('Wrong input for directory')
+    directory = Path(directory)
+    if not directory.exists():
+        raise ValueError(f'The provided directory {directory.name} does not exist')
+    return directory
 
 
 if __name__ == '__main__':
