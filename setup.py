@@ -28,7 +28,7 @@ setup(
         'click>=7.1.2',
         'numpy>=1.18.1',
         'pandas>=1.0.3',
-        'biopython>=1.76',
+        'biopython>=1.19',
         'toolz>=0.10.0',
         'tensorflow==2.2',
         'wget>=3.2',
