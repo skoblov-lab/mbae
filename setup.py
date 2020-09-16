@@ -20,6 +20,7 @@ setup(
             'binding_regions.fsa',
             'consurf.tsv',
             'config.json',
+            'mapping.tsv',
             '*.h5'
         ]
     },
