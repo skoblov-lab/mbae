@@ -1,7 +1,5 @@
 #! /usr/bin/env python
 
-# TODO: test whether local resources load without `resources` module but a relative path instead
-
 import logging
 import operator as op
 import sys
@@ -26,16 +24,14 @@ from mbae_src.data.prepare import (
 
 
 def load_consurf() -> pd.DataFrame:
-    with resources.path(mbae_resources, 'consurf.tsv') as path:
-        return pd.read_csv(path, sep='\t')
+    return pd.read_csv(Constants.consurf_path, sep='\t')
 
 
 def load_binding_regions() -> t.Mapping[str, str]:
-    with resources.path(mbae_resources, 'binding_regions.fsa') as path:
-        return {
-            seqrec.description.split()[-1]: str(seqrec.seq) for seqrec in
-            SeqIO.parse(path, 'fasta')
-        }
+    return {
+        seq_rec.description.split()[-1]: str(seq_rec.seq) for seq_rec in
+        SeqIO.parse(Constants.binding_regions_path, 'fasta')
+    }
 
 
 def load_predictors() -> t.List[models.Model]:
@@ -242,7 +238,7 @@ def prepare():
               help='A path to a file holding a list of accessions, one per a line. '
                    'If provided, the list provided via the `--accessions` option will be ignored.')
 @click.option('-p', '--profile', type=click.Path(dir_okay=False, file_okay=True, resolve_path=True),
-              default='./mbae_resources/binding_regions.fsa', show_default=True,
+              default=Constants.binding_regions_path, show_default=True,
               help='Path to an MSA of binding regions. '
                    'Mbae will use this MSA to cut sequences down to just MHC/HLA binding regions. '
                    'If one does not want cutting sequences, `--profile None` should be passed. ')

@@ -2,6 +2,9 @@ import typing as t
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
 
+import mbae_resources
+from mbae_resources import resources
+
 _Tuple_mapping = t.Tuple[t.Tuple[str, str]]
 Boundaries = t.NamedTuple('boundaries', [('start', int), ('end', int)])
 
@@ -112,6 +115,21 @@ class _Constants:
     @property
     def ord_cutoffs(self) -> t.List[int]:
         return list(self._ord_cutoffs)
+
+    @property
+    def consurf_path(self):
+        with resources.path(mbae_resources, 'consurf.tsv') as path:
+            return path
+
+    @property
+    def mapping_path(self):
+        with resources.path(mbae_resources, 'mapping.tsv') as path:
+            return path
+
+    @property
+    def binding_regions_path(self):
+        with resources.path(mbae_resources, 'binding_regions.fsa') as path:
+            return path
 
 
 # Init Constants; this object should be imported elsewhere

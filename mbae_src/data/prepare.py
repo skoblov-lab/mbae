@@ -70,7 +70,7 @@ class IEDB(_Resource):
 
     def __init__(
             self, download_dir: t.Optional[str] = None, download_file_name: str = 'mhc_ligand_full.zip',
-            mapping: t.Union[str, t.IO, t.Mapping[str, str], None] = './mbae_resources/mapping.tsv'):
+            mapping: t.Union[str, t.IO, t.Mapping[str, str], None] = Constants.mapping_path):
         """
         :param download_dir: Path to a directory where the resource will be downloaded.
         :param download_file_name: How to name a raw downloaded file.
@@ -136,7 +136,7 @@ class Bdata(_Resource):
 
     def __init__(
             self, download_dir: t.Optional[str] = None, download_file_name: str = 'bdata.zip',
-            mapping: t.Union[str, t.IO, t.Mapping[str, str], None] = './mbae_resources/mapping.tsv'):
+            mapping: t.Union[str, t.IO, t.Mapping[str, str], None] = Constants.mapping_path):
         """
         :param download_dir: Path to a directory where the resource will be downloaded.
         :param download_file_name: How to name a raw downloaded file.
