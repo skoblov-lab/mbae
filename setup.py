@@ -31,7 +31,7 @@ setup(
         'pandas>=1.0.3',
         'biopython>=1.19',
         'toolz>=0.10.0',
-        'tensorflow==2.2',
+        'tensorflow==2.3.1',
         'wget>=3.2',
         'fn',
         'tqdm'
